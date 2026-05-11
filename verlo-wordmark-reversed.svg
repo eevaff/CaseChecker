@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 60" width="400" height="120">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Instrument+Serif&amp;display=swap');
+  </style>
+  <text x="4" y="48" font-family="'Instrument Serif', Georgia, serif" font-size="56" fill="#ffffff" stroke="#ffffff" stroke-width="0.8" paint-order="stroke fill" letter-spacing="0.03em">Verlo</text>
+</svg>

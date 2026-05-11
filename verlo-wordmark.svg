@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 164 50" width="328" height="100">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Instrument+Serif&amp;display=swap');
+  </style>
+  <!-- Geometric slab V from brand mark — brass -->
+  <path d="M2 6L20.67 42L39.33 6H29.33L20.67 25.33L12 6H2Z" fill="#D4A574"/>
+  <!-- "erlo" in Instrument Serif, aligned to V baseline -->
+  <text x="40.5" y="42" font-family="'Instrument Serif', Georgia, serif" font-size="50" fill="#0f172a" letter-spacing="-0.01em">erlo</text>
+</svg>

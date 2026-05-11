@@ -1,0 +1,12 @@
+# Local clone of your GitHub docs repo (updated via scripts/pull-docs.sh)
+docs/github-docs/
+
+# Secrets — never commit tokens
+.env
+.env.local
+
+.DS_Store
+.cursor
+node_modules/
+dist/
+tsconfig.tsbuildinfo

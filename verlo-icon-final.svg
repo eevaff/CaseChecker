@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 107 107" width="214" height="214">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Instrument+Serif&amp;display=swap');
+  </style>
+  <rect width="107" height="107" rx="16" fill="#1C1917"/>
+  <text x="50%" y="56%" dominant-baseline="central" text-anchor="middle" font-family="'Instrument Serif', Georgia, serif" font-size="85.6" fill="#D4A574" stroke="#D4A574" stroke-width="0.8" paint-order="stroke fill">V</text>
+</svg>

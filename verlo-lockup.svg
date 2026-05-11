@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 310 60" width="620" height="120">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Instrument+Serif&amp;display=swap');
+  </style>
+  <!-- Icon -->
+  <rect width="52" height="52" rx="8" y="4" fill="#1C1917"/>
+  <text x="26" y="36" dominant-baseline="central" text-anchor="middle" font-family="'Instrument Serif', Georgia, serif" font-size="41.6" fill="#D4A574" stroke="#D4A574" stroke-width="0.8" paint-order="stroke fill">V</text>
+  <!-- Wordmark -->
+  <text x="66" y="48" font-family="'Instrument Serif', Georgia, serif" font-size="50" fill="#D4A574" stroke="#D4A574" stroke-width="0.8" paint-order="stroke fill" letter-spacing="0.03em">Verlo</text>
+</svg>
