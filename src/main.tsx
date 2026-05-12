@@ -19,6 +19,6 @@ const isSecurity = path === '/security'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    {isWordmark ? <WordmarkApproval /> : isLogoTest ? <LogoPlayground /> : isCaseChecker ? <CaseCheckerPage /> : isTruthOrLie ? <TruthOrLiePage /> : isResources ? <ResourcesPage /> : isSecurity ? <SecurityPage /> : <CaseCheckerApp />}
+    {isWordmark ? <WordmarkApproval /> : isLogoTest ? <LogoPlayground /> : isCaseCheckerApp ? <CaseCheckerApp /> : isCaseChecker ? <CaseCheckerPage /> : isTruthOrLie ? <TruthOrLiePage /> : isResources ? <ResourcesPage /> : isSecurity ? <SecurityPage /> : <CaseCheckerApp />}
   </StrictMode>,
 )

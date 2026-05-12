@@ -12,7 +12,22 @@ var C = {
   // CaseChecker product accent (oxblood)
   cc: "#7A2E3B",
   ccLight: "rgba(122,46,59,0.08)",
-  // Severity backgrounds
+  // Flag colors (single color for all contradictions)
+  flag: "#dc2626",
+  flagLight: "rgba(220,38,38,0.06)",
+  flagBorder: "rgba(220,38,38,0.18)",
+  flagBorderActive: "rgba(220,38,38,0.50)",
+  flagBg: "rgba(220,38,38,0.03)",
+  flagActiveChip: "rgba(220,38,38,0.12)",
+  flagHighlight: "rgba(220,38,38,0.10)",
+  flagHighlightBorder: "rgba(220,38,38,0.45)",
+  // Two-tone quote blocks (sidebar)
+  saidBg: "rgba(220,38,38,0.05)",
+  saidBorder: "rgba(220,38,38,0.15)",
+  docBg: "rgba(37,99,235,0.05)",
+  docBorder: "rgba(37,99,235,0.15)",
+  docText: "#1e40af",
+  // Legacy (PostSession/PDFExport)
   highBg: "#fef2f2", highBorder: "#fecaca",
   medBg: "#fffbeb", medBorder: "#fde68a",
   confirmBg: "#ecfdf5",
@@ -115,24 +130,9 @@ function DocIcon({ type, size }: { type?: string; size?: number }) {
   );
 }
 
-// Severity indicator: dot + text (no bordered box)
-function SeverityBadge({ level }: { level: string }) {
-  var isHigh = level === "HIGH";
-  var col = isHigh ? C.red : C.amber;
-  return (
-    <div style={{ display: "inline-flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
-      <div style={{ width: 6, height: 6, borderRadius: 3, background: col, flexShrink: 0 }} />
-      <span style={{ fontSize: 11, fontWeight: 700, color: col, textTransform: "uppercase", letterSpacing: "0.04em" }}>{level}</span>
-    </div>
-  );
-}
-
 // Renders text with keyword highlighting for flagged statements
-function HighlightedText({ text, keywords, severity }: { text: string; keywords?: string[]; severity?: string }) {
+function HighlightedText({ text, keywords }: { text: string; keywords?: string[] }) {
   if (!keywords || keywords.length === 0) return <>{text}</>;
-  var isHigh = severity === "HIGH";
-  var bgCol = isHigh ? "rgba(220,38,38,0.08)" : "rgba(217,119,6,0.08)";
-  var borderCol = isHigh ? "rgba(220,38,38,0.4)" : "rgba(217,119,6,0.4)";
   // Build regex from keywords
   var escaped = keywords.map(function (kw) { return kw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); });
   var regex = new RegExp("(" + escaped.join("|") + ")", "gi");
@@ -142,7 +142,7 @@ function HighlightedText({ text, keywords, severity }: { text: string; keywords?
       {parts.map(function (part, i) {
         var isMatch = keywords.some(function (kw) { return part.toLowerCase() === kw.toLowerCase(); });
         if (isMatch) {
-          return <span key={i} style={{ background: bgCol, borderBottom: "1.5px solid " + borderCol, fontWeight: 500, padding: "0 1px" }}>{part}</span>;
+          return <span key={i} style={{ background: "rgba(220,38,38,0.10)", borderBottom: "1.5px solid rgba(220,38,38,0.45)", fontWeight: 500, padding: "0 1px" }}>{part}</span>;
         }
         return <span key={i}>{part}</span>;
       })}
@@ -274,12 +274,11 @@ var SESSION = {
 };
 
 type TranscriptFlag = {
-  severity: string;
-  title: string;
+  id: string;
+  insight: string;
   doc: string;
   page: number;
   quote: string;
-  analysis: string;
   keywords: string[];
   suggestedFollowUp: string;
 };
@@ -290,7 +289,7 @@ type TranscriptLine = {
   role: string;
   text: string;
   type: "q" | "s";
-  flag?: TranscriptFlag;
+  flags?: TranscriptFlag[];
 };
 
 var LINES: TranscriptLine[] = [
@@ -300,61 +299,65 @@ var LINES: TranscriptLine[] = [
   {
     time: "10:03:02", speaker: "Michael Torres", role: "Witness", type: "s",
     text: "I was going about 25 miles per hour. The speed limit there is 35, so I was well under it.",
-    flag: {
-      severity: "HIGH",
-      title: "Contradicts police report",
+    flags: [{
+      id: "f1",
+      insight: "Police report estimates 45–55 mph",
       doc: "Police_Report_4821.pdf",
       page: 3,
       quote: "Based on skid mark analysis, Vehicle 1 was estimated to be traveling between 45–55 mph at the point of initial braking.",
-      analysis: "The officer's skid mark analysis indicates a speed nearly double what the witness claims. Material discrepancy relevant to liability.",
       keywords: ["25 miles per hour"],
       suggestedFollowUp: "Can you describe the road conditions and whether you applied brakes before the collision?",
-    },
+    }],
   },
   { time: "10:03:28", speaker: "Katherine Lin", role: "Counsel", text: "Did you notice the stop sign at the intersection of Coral Way and 42nd Avenue?", type: "q" },
   {
     time: "10:03:41", speaker: "Michael Torres", role: "Witness", type: "s",
     text: "No, I did not see any stop sign. I don't believe there was one at that intersection.",
-    flag: {
-      severity: "MEDIUM",
-      title: "Contradicts prior deposition",
+    flags: [{
+      id: "f2",
+      insight: "Prior depo: acknowledged stop sign existed",
       doc: "Prior_Deposition_Torres_Jan2024.pdf",
       page: 12,
       quote: "I noticed the stop sign but it was partially obscured by foliage. I slowed down but did not come to a complete stop.",
-      analysis: "In his January 2024 deposition, the witness acknowledged the stop sign existed. He now denies any awareness of it.",
       keywords: ["did not see any stop sign", "I don't believe there was one"],
       suggestedFollowUp: "In your January deposition, you mentioned the stop sign was partially obscured. Can you clarify what you recall seeing?",
-    },
+    }],
   },
   { time: "10:04:05", speaker: "Katherine Lin", role: "Counsel", text: "Had you consumed any alcohol before driving that evening?", type: "q" },
   {
     time: "10:04:18", speaker: "Michael Torres", role: "Witness", type: "s",
     text: "Absolutely not. I had not consumed any alcohol that day whatsoever.",
-    flag: {
-      severity: "HIGH",
-      title: "Contradicts medical records",
+    flags: [{
+      id: "f3",
+      insight: "Hospital records: BAC 0.04%, admitted 2 beers",
       doc: "Medical_Records_Regional_Hospital.pdf",
       page: 7,
       quote: "Patient BAC upon admission: 0.04%. Patient stated he had 'two beers with lunch' approximately four hours prior.",
-      analysis: "Hospital records show a measurable BAC and the witness's own admission of alcohol consumption to medical staff, directly contradicting today's testimony.",
       keywords: ["had not consumed any alcohol"],
       suggestedFollowUp: "The hospital records note you mentioned having two beers at lunch. Can you walk us through your afternoon before driving?",
-    },
+    }],
   },
-  { time: "10:04:42", speaker: "Katherine Lin", role: "Counsel", text: "Were the brakes on your vehicle functioning properly that day?", type: "q" },
+  { time: "10:04:42", speaker: "Katherine Lin", role: "Counsel", text: "Were the brakes on your vehicle functioning properly that day? And were you the only person driving the vehicle that week?", type: "q" },
   {
     time: "10:04:55", speaker: "Michael Torres", role: "Witness", type: "s",
-    text: "Yes, the brakes were working fine. I had no issues with the vehicle that day.",
-    flag: {
-      severity: "MEDIUM",
-      title: "Contradicts insurance claim",
+    text: "Yes, the brakes were working fine. I had no issues with the vehicle. And yes, I was the only driver — no one else had access to the car.",
+    flags: [{
+      id: "f4",
+      insight: "Filed brake repair claim 2 weeks prior",
       doc: "Slide_Policy_GRB-2024-0891.pdf",
       page: 4,
       quote: "Claim filed 02/28/2024: Brake system inspection and repair requested. Claimant reported 'grinding noise when braking' and 'increased stopping distance.'",
-      analysis: "Two weeks before the accident, the witness filed an insurance claim specifically citing brake problems — grinding and increased stopping distance.",
-      keywords: ["brakes were working fine", "no issues with the vehicle"],
+      keywords: ["brakes were working fine", "no issues with the"],
       suggestedFollowUp: "You filed an insurance claim citing brake issues two weeks prior. Were those repairs completed before March 14th?",
-    },
+    }, {
+      id: "f5",
+      insight: "Wife listed as co-driver on insurance",
+      doc: "Slide_Policy_GRB-2024-0891.pdf",
+      page: 2,
+      quote: "Named drivers: Michael Torres (primary), Sandra Torres (secondary). Both drivers confirmed active use of insured vehicle.",
+      keywords: ["only driver", "no one else had access"],
+      suggestedFollowUp: "Your insurance policy lists Sandra Torres as a secondary driver. Did she drive the vehicle in the days before the accident?",
+    }],
   },
   { time: "10:05:18", speaker: "Katherine Lin", role: "Counsel", text: "After the collision, did you exit your vehicle immediately?", type: "q" },
   { time: "10:05:30", speaker: "Michael Torres", role: "Witness", text: "Yes, I got out right away to check on the other driver. I called 911 from the scene.", type: "s" },
@@ -533,6 +536,29 @@ function SessionSetup({ onStart }: { onStart: () => void }) {
 }
 
 
+// Sidebar-specific follow-up (labeled "Follow-up", no Beta badge)
+function SidebarFollowUp({ text }: { text: string }) {
+  var [open, setOpen] = useState(false);
+  return (
+    <div>
+      <div onClick={function (e) { e.stopPropagation(); setOpen(!open); }} style={{ display: "flex", alignItems: "center", gap: 5, cursor: "pointer" }}>
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={C.cc} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="10" /><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3" /><line x1="12" y1="17" x2="12.01" y2="17" />
+        </svg>
+        <span style={{ fontSize: 11, fontWeight: 500, color: C.textSec }}>Follow-up</span>
+        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={C.textMuted} strokeWidth="2" style={{ transform: open ? "rotate(180deg)" : "rotate(0)", transition: "transform 0.15s" }}>
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
+      </div>
+      {open && (
+        <p style={{ fontSize: 11, color: C.textSec, fontStyle: "italic", margin: "6px 0 0 15px", lineHeight: 1.5, animation: "cc-fade-in 0.2s ease" }}>
+          &ldquo;{text}&rdquo;
+        </p>
+      )}
+    </div>
+  );
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // FLOW 3: LIVE ANALYSIS SESSION
 // ═══════════════════════════════════════════════════════════════════
@@ -541,10 +567,13 @@ function LiveAnalysis() {
   var [visCount, setVisCount] = useState(0);
   var [wordCounts, setWordCounts] = useState<Record<number, number>>({});
   var [locked, setLocked] = useState<Record<number, boolean>>({});
-  var [collapsed, setCollapsed] = useState<Record<number, boolean>>({});
-  var [reviewed, setReviewed] = useState<Record<number, boolean>>({});
+  var [activeFlagId, setActiveFlagId] = useState<string | null>(null);
+  var [dismissed, setDismissed] = useState<Record<string, boolean>>({});
+  var [expandedFlags, setExpandedFlags] = useState<Record<string, boolean>>({});
   var [toast, setToast] = useState("");
   var transcriptRef = useRef<HTMLDivElement>(null);
+  var sidebarRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  var sidebarScrollRef = useRef<HTMLDivElement>(null);
 
   // Word-by-word streaming with dynamic timing
   useEffect(function () {
@@ -575,13 +604,48 @@ function LiveAnalysis() {
     }
   }, [visCount, wordCounts, locked]);
 
-  // Flags with original LINES index
-  var flagItems = LINES.map(function (l, i) { return { line: l, idx: i }; })
-    .filter(function (item) { return item.line.flag && locked[item.idx]; });
-  var unreviewedCount = flagItems.filter(function (f) { return !reviewed[f.idx]; }).length;
-  var unreviewedItems = flagItems.slice().reverse().filter(function (f) { return !reviewed[f.idx]; });
-  var reviewedItems = flagItems.slice().reverse().filter(function (f) { return reviewed[f.idx]; });
-  var sortedItems = unreviewedItems.concat(reviewedItems);
+  // Build flat list of individual flags with their parent line info
+  var sidebarFlags: { flag: TranscriptFlag; line: TranscriptLine; lineIdx: number }[] = [];
+  LINES.forEach(function (line, i) {
+    if (line.flags && line.flags.length > 0 && locked[i]) {
+      line.flags.forEach(function (flag) {
+        sidebarFlags.push({ flag: flag, line: line, lineIdx: i });
+      });
+    }
+  });
+  var totalFlagCount = sidebarFlags.length;
+  var undismissedCount = sidebarFlags.filter(function (f) { return !dismissed[f.flag.id]; }).length;
+  var undismissedItems = sidebarFlags.filter(function (f) { return !dismissed[f.flag.id]; }).slice().reverse();
+  var dismissedItems = sidebarFlags.filter(function (f) { return dismissed[f.flag.id]; });
+  var sortedSidebarFlags = undismissedItems.concat(dismissedItems);
+
+  // Auto-expand newly arriving flags
+  useEffect(function () {
+    var newExpanded: Record<string, boolean> = {};
+    var changed = false;
+    sidebarFlags.forEach(function (item) {
+      if (expandedFlags[item.flag.id] === undefined && !dismissed[item.flag.id]) {
+        newExpanded[item.flag.id] = true;
+        changed = true;
+      }
+    });
+    if (changed) {
+      setExpandedFlags(function (prev) {
+        var n: Record<string, boolean> = {};
+        for (var k in prev) n[k] = prev[k];
+        for (var k in newExpanded) n[k] = newExpanded[k];
+        return n;
+      });
+    }
+  }, [totalFlagCount]);
+
+  // Auto-scroll sidebar when activeFlagId changes
+  useEffect(function () {
+    if (activeFlagId) {
+      var el = sidebarRefs.current[activeFlagId];
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+  }, [activeFlagId]);
 
   var isLive = visCount < LINES.length;
 
@@ -595,17 +659,6 @@ function LiveAnalysis() {
     var ss = totalSec % 60;
     return (mm < 10 ? "0" : "") + mm + ":" + (ss < 10 ? "0" : "") + ss;
   })();
-
-  var toggleCollapse = function (idx: number) {
-    setCollapsed(function (prev) {
-      var n: Record<number, boolean> = {};
-      for (var k in prev) n[k] = prev[k];
-      if (n[idx]) delete n[idx]; else n[idx] = true;
-      return n;
-    });
-  };
-
-  var showToast = function () { setToast("Document viewer coming soon"); };
 
   return (
     <div style={{ minHeight: "100vh", background: C.bgSub, display: "flex", flexDirection: "column" }}>
@@ -626,8 +679,8 @@ function LiveAnalysis() {
           <span style={{ fontSize: 13, fontWeight: 600, color: C.text, maxWidth: 400, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {SESSION.title}
           </span>
-          {flagItems.length > 0 && (
-            <span style={{ fontSize: 11, fontWeight: 700, color: "#fff", background: C.red, padding: "2px 8px", borderRadius: 10 }}>{flagItems.length}</span>
+          {totalFlagCount > 0 && (
+            <span style={{ fontSize: 11, fontWeight: 700, color: "#fff", background: "#dc2626", padding: "2px 8px", borderRadius: 10 }}>{totalFlagCount}</span>
           )}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
@@ -679,8 +732,14 @@ function LiveAnalysis() {
               var isQuestion = line.type === "q";
               var isLocked = locked[i];
               var isStreaming = !isLocked;
-              var hasFlag = line.flag && isLocked;
-              var isCardCollapsed = collapsed[i];
+              var hasFlags = line.flags && line.flags.length > 0 && isLocked;
+              var lineHasActiveFlag = hasFlags && line.flags!.some(function (f) { return f.id === activeFlagId; });
+
+              // Merge all keywords from all flags on this line
+              var allKeywords: string[] = [];
+              if (hasFlags) {
+                line.flags!.forEach(function (f) { allKeywords = allKeywords.concat(f.keywords); });
+              }
 
               // Word-by-word: show only revealed words while streaming
               var words = line.text.split(" ");
@@ -688,12 +747,10 @@ function LiveAnalysis() {
               var visibleText = words.slice(0, revealedCount).join(" ");
               var allWordsShown = revealedCount >= words.length;
 
-              var borderColor = hasFlag ? (line.flag!.severity === "HIGH" ? C.red : C.amber) : "transparent";
-
               return (
                 <div key={i} style={{
-                  borderLeft: "3px solid " + borderColor,
-                  background: "transparent",
+                  borderLeft: hasFlags ? "3px solid #dc2626" : "3px solid transparent",
+                  background: lineHasActiveFlag ? "rgba(220,38,38,0.03)" : "transparent",
                   animation: "cc-fade-in 0.3s ease",
                 }}>
                   {/* Statement row */}
@@ -719,8 +776,8 @@ function LiveAnalysis() {
                       opacity: isStreaming ? 0.55 : 1,
                       transition: "opacity 0.3s, color 0.3s",
                     }}>
-                      {isLocked && hasFlag
-                        ? <HighlightedText text={line.text} keywords={line.flag!.keywords} severity={line.flag!.severity} />
+                      {isLocked && hasFlags
+                        ? <HighlightedText text={line.text} keywords={allKeywords} />
                         : visibleText
                       }
                       {isStreaming && !allWordsShown && (
@@ -731,51 +788,41 @@ function LiveAnalysis() {
                         </span>
                       )}
                     </p>
-                  </div>
 
-                  {/* Inline contradiction card */}
-                  {hasFlag && (
-                    <div style={{ padding: "0 20px 12px" }}>
-                      {isCardCollapsed ? (
-                        <div onClick={function () { toggleCollapse(i); }} style={{
-                          display: "inline-flex", alignItems: "center", gap: 6,
-                          cursor: "pointer", padding: "4px 10px", borderRadius: 6,
-                          background: C.bgSub,
-                        }}>
-                          <SeverityBadge level={line.flag!.severity} />
-                          <span style={{ fontSize: 12, fontWeight: 500, color: C.text }}>{line.flag!.title}</span>
-                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={C.textMuted} strokeWidth="2"><polyline points="6 9 12 15 18 9" /></svg>
-                        </div>
-                      ) : (
-                        <div style={{
-                          background: C.bg,
-                          borderLeft: "3px solid " + (line.flag!.severity === "HIGH" ? C.red : C.amber),
-                          border: "1px solid " + C.border,
-                          borderRadius: 10, padding: "14px 16px",
-                          animation: "cc-slide-up 0.3s ease",
-                        }}>
-                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                              <SeverityBadge level={line.flag!.severity} />
-                              <span style={{ fontSize: 13, fontWeight: 600, color: C.text }}>{line.flag!.title}</span>
+                    {/* Inline flag chips */}
+                    {hasFlags && (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 5, marginTop: 7 }}>
+                        {line.flags!.map(function (flag) {
+                          var isActive = activeFlagId === flag.id;
+                          return (
+                            <div key={flag.id} onClick={function () {
+                              var newId = isActive ? null : flag.id;
+                              setActiveFlagId(newId);
+                              if (newId) {
+                                setExpandedFlags(function (prev) { var n: Record<string, boolean> = {}; for (var k in prev) n[k] = prev[k]; n[newId] = true; return n; });
+                                setTimeout(function () {
+                                  var el = sidebarRefs.current[newId];
+                                  if (el) el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+                                }, 50);
+                              }
+                            }} style={{
+                              display: "inline-flex", alignItems: "center", gap: 5,
+                              background: isActive ? "rgba(220,38,38,0.12)" : "rgba(220,38,38,0.06)",
+                              border: "1px solid " + (isActive ? "rgba(220,38,38,0.50)" : "rgba(220,38,38,0.18)"),
+                              borderRadius: 20, padding: "2px 9px 2px 8px",
+                              cursor: "pointer", alignSelf: "flex-start",
+                              transition: "background 0.15s, border-color 0.15s",
+                            }}>
+                              <span style={{ fontSize: 11, fontWeight: 600, color: "#dc2626" }}>{flag.insight}</span>
+                              <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.5, flexShrink: 0 }}>
+                                <polyline points="9 18 15 12 9 6" />
+                              </svg>
                             </div>
-                            <svg onClick={function () { toggleCollapse(i); }} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.textMuted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ cursor: "pointer", flexShrink: 0 }}>
-                              <polyline points="18 15 12 9 6 15" />
-                            </svg>
-                          </div>
-
-                          {/* Citation table */}
-                          <CitationTable flag={line.flag!} onFileClick={showToast} />
-
-                          {/* Analysis */}
-                          <p style={{ fontSize: 16, color: C.text, lineHeight: 1.55, margin: 0 }}>{line.flag!.analysis}</p>
-
-                          {/* Per-contradiction follow-up */}
-                          <FollowUpSection text={line.flag!.suggestedFollowUp} />
-                        </div>
-                      )}
-                    </div>
-                  )}
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
                 </div>
               );
             })}
@@ -799,14 +846,14 @@ function LiveAnalysis() {
           <div style={{ padding: "10px 18px", borderBottom: "1px solid " + C.border, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <span style={{ fontSize: 14, fontWeight: 600, color: C.text }}>Contradictions</span>
-              {unreviewedCount > 0 && (
-                <span style={{ fontSize: 11, fontWeight: 700, color: "#fff", background: C.red, padding: "1px 7px", borderRadius: 8, minWidth: 18, textAlign: "center" }}>{unreviewedCount}</span>
+              {undismissedCount > 0 && (
+                <span style={{ fontSize: 11, fontWeight: 700, color: "#fff", background: "#dc2626", padding: "1px 7px", borderRadius: 8, minWidth: 18, textAlign: "center" }}>{undismissedCount}</span>
               )}
             </div>
           </div>
 
-          <div style={{ flex: 1, overflow: "auto", padding: "10px 12px" }}>
-            {flagItems.length === 0 ? (
+          <div ref={sidebarScrollRef} style={{ flex: 1, overflow: "auto", padding: "10px 12px" }}>
+            {sortedSidebarFlags.length === 0 ? (
               <div style={{ padding: "48px 16px", textAlign: "center" }}>
                 <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke={C.border} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ margin: "0 auto 12px", display: "block" }}>
                   <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" /><polyline points="14 2 14 8 20 8" />
@@ -817,49 +864,129 @@ function LiveAnalysis() {
                 </p>
               </div>
             ) : (
-              sortedItems.map(function (item, idx) {
+              sortedSidebarFlags.map(function (item) {
+                var flag = item.flag;
                 var line = item.line;
-                var flag = line.flag!;
-                var isRev = reviewed[item.idx];
-                var sevCol = flag.severity === "HIGH" ? C.red : C.amber;
+                var isDis = dismissed[flag.id];
+                var isExp = expandedFlags[flag.id] && !isDis;
+                var isActive = activeFlagId === flag.id;
+                var truncated = line.text.length > 55 ? "\u201C" + line.text.slice(0, 55) + "…\u201D" : "\u201C" + line.text + "\u201D";
+
+                var toggleExpand = function () {
+                  setExpandedFlags(function (prev) {
+                    var n: Record<string, boolean> = {};
+                    for (var k in prev) n[k] = prev[k];
+                    n[flag.id] = !prev[flag.id];
+                    return n;
+                  });
+                };
+
                 return (
-                  <div key={idx} style={{
-                    background: C.bg,
-                    borderLeft: "3px solid " + sevCol,
-                    border: "1px solid " + C.border,
-                    borderRadius: 10, padding: "12px 14px", marginBottom: 8, cursor: "pointer",
+                  <div key={flag.id} ref={function (el) { sidebarRefs.current[flag.id] = el; }} style={{
+                    borderLeft: "3px solid #dc2626",
+                    borderTop: isActive ? "1.5px solid #dc2626" : "1px solid " + C.border,
+                    borderRight: isActive ? "1.5px solid #dc2626" : "1px solid " + C.border,
+                    borderBottom: isActive ? "1.5px solid #dc2626" : "1px solid " + C.border,
+                    boxShadow: isActive ? "0 2px 12px rgba(220,38,38,0.10)" : "none",
+                    borderRadius: 8, marginBottom: 6,
                     animation: "cc-slide-up 0.3s ease",
-                    opacity: isRev ? 0.4 : 1,
-                    transition: "opacity 0.3s",
+                    opacity: isDis ? 0.45 : 1,
+                    transition: "opacity 0.3s, border-color 0.2s, box-shadow 0.2s",
                   }}>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-                      <SeverityBadge level={flag.severity} />
-                      <span style={{ fontSize: 10, color: C.textMuted, fontFamily: "'DM Mono', monospace" }}>
-                        {line.time.split(":").slice(1).join(":")}
-                      </span>
-                    </div>
-                    <p style={{ fontSize: 15, fontWeight: 600, color: C.text, margin: "0 0 8px" }}>{flag.title}</p>
-
-                    {/* Citation stack (vertical for sidebar) */}
-                    <CitationStack flag={flag} onFileClick={showToast} />
-
-                    {/* Per-contradiction follow-up */}
-                    <FollowUpSection text={flag.suggestedFollowUp} />
-
-                    {/* Reviewed toggle */}
-                    <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
-                      {isRev ? (
-                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                          <span style={{ fontSize: 11, color: C.green, fontWeight: 500 }}>Reviewed ✓</span>
-                          <span onClick={function (e) { e.stopPropagation(); setReviewed(function (prev) { var n: Record<number, boolean> = {}; for (var k in prev) n[k] = prev[k]; delete n[item.idx]; return n; }); }} style={{ fontSize: 11, color: C.textSec, cursor: "pointer", textDecoration: "underline" }}>Undo</span>
+                    {!isExp ? (
+                      /* ── Collapsed card ── */
+                      <div onClick={function () { toggleExpand(); setActiveFlagId(flag.id); }} style={{
+                        display: "flex", alignItems: "center", gap: 8,
+                        padding: "9px 12px", cursor: "pointer",
+                      }}>
+                        <span style={{
+                          flex: 1, fontSize: 12, fontWeight: 500, color: C.text,
+                          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                        }}>{truncated}</span>
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={C.textMuted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                          <polyline points="6 9 12 15 18 9" />
+                        </svg>
+                      </div>
+                    ) : (
+                      /* ── Expanded card: two-tone quote blocks ── */
+                      <div style={{ padding: "12px 14px" }}>
+                        {/* Header: timestamp + collapse chevron */}
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                          <span style={{ fontSize: 10, color: C.textMuted, fontFamily: "'DM Mono', monospace" }}>
+                            {line.time.split(":").slice(1).join(":")}
+                          </span>
+                          <svg onClick={toggleExpand} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={C.textMuted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ cursor: "pointer", flexShrink: 0 }}>
+                            <polyline points="18 15 12 9 6 15" />
+                          </svg>
                         </div>
-                      ) : (
-                        <span className="cc-mark-reviewed" onClick={function (e) { e.stopPropagation(); setReviewed(function (prev) { var n: Record<number, boolean> = {}; for (var k in prev) n[k] = prev[k]; n[item.idx] = true; return n; }); }} style={{ fontSize: 11, color: C.textSec, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4 }}>
-                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={C.textMuted} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
-                          Mark reviewed
-                        </span>
-                      )}
-                    </div>
+
+                        {/* Testimony block (red tint) */}
+                        <div style={{
+                          background: C.saidBg, border: "1px solid " + C.saidBorder,
+                          borderRadius: 7, padding: "9px 11px", marginBottom: 6,
+                        }}>
+                          <span style={{ fontSize: 9, fontWeight: 700, color: C.flag, textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 4 }}>Testimony</span>
+                          <p style={{ fontSize: 12, color: C.text, margin: 0, lineHeight: 1.5, fontWeight: 500 }}>
+                            &ldquo;{line.text}&rdquo;
+                          </p>
+                        </div>
+
+                        {/* Document block (blue tint) */}
+                        <div style={{
+                          background: C.docBg, border: "1px solid " + C.docBorder,
+                          borderRadius: 7, padding: "9px 11px", marginBottom: 8,
+                        }}>
+                          <span style={{ fontSize: 9, fontWeight: 700, color: C.docText, textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 4 }}>
+                            {flag.doc}, p.&nbsp;{flag.page}
+                          </span>
+                          <p style={{ fontSize: 12, color: C.text, margin: 0, lineHeight: 1.5, fontStyle: "italic" }}>
+                            &ldquo;{flag.quote}&rdquo;
+                          </p>
+                        </div>
+
+                        {/* Follow-up + Dismiss row */}
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                          <SidebarFollowUp text={flag.suggestedFollowUp} />
+                          <div onClick={function (e) {
+                            e.stopPropagation();
+                            setDismissed(function (prev) { var n: Record<string, boolean> = {}; for (var k in prev) n[k] = prev[k]; n[flag.id] = true; return n; });
+                            setExpandedFlags(function (prev) { var n: Record<string, boolean> = {}; for (var k in prev) n[k] = prev[k]; n[flag.id] = false; return n; });
+                            if (activeFlagId === flag.id) setActiveFlagId(null);
+                          }} style={{
+                            display: "inline-flex", alignItems: "center", gap: 5,
+                            border: "1px solid " + C.border, background: C.bgSub,
+                            borderRadius: 6, padding: "3px 10px 3px 5px", cursor: "pointer",
+                            flexShrink: 0,
+                          }}
+                          onMouseEnter={function (e) { e.currentTarget.style.borderColor = C.textSec; e.currentTarget.style.background = "#eef2f6"; }}
+                          onMouseLeave={function (e) { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.background = C.bgSub; }}
+                          >
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
+                              <circle cx="12" cy="12" r="10" stroke={C.textMuted} strokeWidth="1.5" fill="none" />
+                              <polyline points="8 12 11 15 16 9" stroke={C.textMuted} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" opacity="0.35" />
+                            </svg>
+                            <span style={{ fontSize: 10, fontWeight: 500, color: C.textSec }}>Dismiss</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Dismissed state overlay */}
+                    {isDis && (
+                      <div style={{ padding: "9px 12px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                            <circle cx="12" cy="12" r="10" fill={C.green} />
+                            <polyline points="8 12 11 15 16 9" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                          <span style={{ fontSize: 10, fontWeight: 500, color: C.green }}>Reviewed</span>
+                        </div>
+                        <span onClick={function (e) {
+                          e.stopPropagation();
+                          setDismissed(function (prev) { var n: Record<string, boolean> = {}; for (var k in prev) n[k] = prev[k]; delete n[flag.id]; return n; });
+                        }} style={{ fontSize: 10, color: C.textSec, cursor: "pointer", textDecoration: "underline" }}>undo</span>
+                      </div>
+                    )}
                   </div>
                 );
               })
@@ -884,12 +1011,14 @@ function PostSession({ onExport }: { onExport: () => void }) {
   var [expandedTranscript, setExpandedTranscript] = useState<Record<number, boolean>>({});
   var [toast, setToast] = useState("");
 
-  var allFlags = LINES.filter(function (l) { return l.flag; });
-  var highCount = allFlags.filter(function (l) { return l.flag!.severity === "HIGH"; }).length;
-  var medCount = allFlags.filter(function (l) { return l.flag!.severity === "MEDIUM"; }).length;
+  var allFlagItems: { line: TranscriptLine; flag: TranscriptFlag }[] = [];
+  LINES.forEach(function (l) {
+    if (l.flags) l.flags.forEach(function (f) { allFlagItems.push({ line: l, flag: f }); });
+  });
+  var totalFlagCount = allFlagItems.length;
 
   var citedDocs: Record<string, boolean> = {};
-  allFlags.forEach(function (l) { citedDocs[l.flag!.doc] = true; });
+  allFlagItems.forEach(function (item) { citedDocs[item.flag.doc] = true; });
 
   var toggleExpand = function (idx: number) {
     setExpandedTranscript(function (prev) {
@@ -947,16 +1076,12 @@ function PostSession({ onExport }: { onExport: () => void }) {
               <span style={{ fontSize: 12, fontWeight: 600, color: C.textSec, textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 14 }}>Contradiction Summary</span>
               <div style={{ display: "flex", gap: 12 }}>
                 <div style={{ flex: 1, textAlign: "center", padding: "14px 8px", background: C.highBg, borderRadius: 10, border: "1px solid " + C.highBorder }}>
-                  <div style={{ fontSize: 24, fontWeight: 800, color: C.red }}>{highCount}</div>
-                  <div style={{ fontSize: 11, color: C.red, fontWeight: 600 }}>HIGH</div>
-                </div>
-                <div style={{ flex: 1, textAlign: "center", padding: "14px 8px", background: C.medBg, borderRadius: 10, border: "1px solid " + C.medBorder }}>
-                  <div style={{ fontSize: 24, fontWeight: 800, color: C.amber }}>{medCount}</div>
-                  <div style={{ fontSize: 11, color: C.amber, fontWeight: 600 }}>MEDIUM</div>
+                  <div style={{ fontSize: 24, fontWeight: 800, color: C.red }}>{totalFlagCount}</div>
+                  <div style={{ fontSize: 11, color: C.red, fontWeight: 600 }}>Contradictions</div>
                 </div>
                 <div style={{ flex: 1, textAlign: "center", padding: "14px 8px", background: C.bgSub, borderRadius: 10 }}>
-                  <div style={{ fontSize: 24, fontWeight: 800, color: C.text }}>{allFlags.length}</div>
-                  <div style={{ fontSize: 11, color: C.textMuted }}>Total</div>
+                  <div style={{ fontSize: 24, fontWeight: 800, color: C.text }}>{MOCK_DOCS.length}</div>
+                  <div style={{ fontSize: 11, color: C.textMuted }}>Documents</div>
                 </div>
               </div>
             </div>
@@ -1014,7 +1139,7 @@ function PostSession({ onExport }: { onExport: () => void }) {
             {/* Tabs */}
             <div style={{ display: "flex", borderBottom: "2px solid " + C.border }}>
               {[
-                { key: "contradictions", label: "Contradictions", count: allFlags.length },
+                { key: "contradictions", label: "Contradictions", count: totalFlagCount },
                 { key: "transcript", label: "Full Transcript", count: null },
               ].map(function (t) {
                 var active = tab === t.key;
