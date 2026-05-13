@@ -395,6 +395,9 @@ function GlobalStyles() {
 @keyframes cc-typing{0%,80%,100%{opacity:0.3}40%{opacity:1}}
 @keyframes cc-fade-in{from{opacity:0}to{opacity:1}}
 @keyframes cc-border-pulse{0%,100%{border-color:rgba(220,38,38,0.3)}50%{border-color:rgba(220,38,38,0.7)}}
+@keyframes cc-chip-enter{0%{opacity:0.5;transform:scale(0.95)}60%{opacity:1;transform:scale(1.03)}100%{opacity:1;transform:scale(1)}}
+@keyframes cc-pill-bob{0%,100%{transform:translateX(-50%) translateY(0)}50%{transform:translateX(-50%) translateY(-3px)}}
+@keyframes cc-pill-enter{from{opacity:0;transform:translateX(-50%) translateY(10px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
 .cc-mark-reviewed{text-decoration:none;transition:color 0.15s,text-decoration 0.15s}
 .cc-mark-reviewed:hover{text-decoration:underline;color:#0f172a !important}
 `}</style>
@@ -536,29 +539,6 @@ function SessionSetup({ onStart }: { onStart: () => void }) {
 }
 
 
-// Sidebar-specific follow-up (labeled "Follow-up", no Beta badge)
-function SidebarFollowUp({ text }: { text: string }) {
-  var [open, setOpen] = useState(false);
-  return (
-    <div>
-      <div onClick={function (e) { e.stopPropagation(); setOpen(!open); }} style={{ display: "flex", alignItems: "center", gap: 5, cursor: "pointer" }}>
-        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={C.cc} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-          <circle cx="12" cy="12" r="10" /><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3" /><line x1="12" y1="17" x2="12.01" y2="17" />
-        </svg>
-        <span style={{ fontSize: 11, fontWeight: 500, color: C.textSec }}>Follow-up</span>
-        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={C.textMuted} strokeWidth="2" style={{ transform: open ? "rotate(180deg)" : "rotate(0)", transition: "transform 0.15s" }}>
-          <polyline points="6 9 12 15 18 9" />
-        </svg>
-      </div>
-      {open && (
-        <p style={{ fontSize: 11, color: C.textSec, fontStyle: "italic", margin: "6px 0 0 15px", lineHeight: 1.5, animation: "cc-fade-in 0.2s ease" }}>
-          &ldquo;{text}&rdquo;
-        </p>
-      )}
-    </div>
-  );
-}
-
 // ═══════════════════════════════════════════════════════════════════
 // FLOW 3: LIVE ANALYSIS SESSION
 // ═══════════════════════════════════════════════════════════════════
@@ -568,28 +548,26 @@ function LiveAnalysis() {
   var [wordCounts, setWordCounts] = useState<Record<number, number>>({});
   var [locked, setLocked] = useState<Record<number, boolean>>({});
   var [activeFlagId, setActiveFlagId] = useState<string | null>(null);
-  var [dismissed, setDismissed] = useState<Record<string, boolean>>({});
-  var [expandedFlags, setExpandedFlags] = useState<Record<string, boolean>>({});
+  var [autoScrollFrozen, setAutoScrollFrozen] = useState(false);
+  var [showResumePill, setShowResumePill] = useState(false);
   var [toast, setToast] = useState("");
   var transcriptRef = useRef<HTMLDivElement>(null);
-  var sidebarRefs = useRef<Record<string, HTMLDivElement | null>>({});
-  var sidebarScrollRef = useRef<HTMLDivElement>(null);
+  var previewScrollRef = useRef<HTMLDivElement>(null);
+  var lineRefs = useRef<Record<number, HTMLDivElement | null>>({});
+  var isAutoScrolling = useRef(false);
 
   // Word-by-word streaming with dynamic timing
   useEffect(function () {
     var timers: ReturnType<typeof setTimeout>[] = [];
     LINES.forEach(function (line, i) {
       var sched = SCHEDULE[i];
-      // Line appears
       timers.push(setTimeout(function () { setVisCount(i + 1); }, sched.start));
-      // Words reveal one at a time (100ms each)
       var words = line.text.split(" ");
       words.forEach(function (_, w) {
         timers.push(setTimeout(function () {
           setWordCounts(function (prev) { var n: Record<number, number> = {}; for (var k in prev) n[k] = prev[k]; n[i] = w + 1; return n; });
         }, sched.start + 100 * (w + 1)));
       });
-      // Lock after all words + 400ms
       timers.push(setTimeout(function () {
         setLocked(function (prev) { var n: Record<number, boolean> = {}; for (var k in prev) n[k] = prev[k]; n[i] = true; return n; });
       }, sched.lockTime));
@@ -597,55 +575,58 @@ function LiveAnalysis() {
     return function () { timers.forEach(clearTimeout); };
   }, []);
 
-  // Auto-scroll
+  // Auto-scroll (only when not frozen)
   useEffect(function () {
-    if (transcriptRef.current) {
+    if (!autoScrollFrozen && transcriptRef.current) {
+      isAutoScrolling.current = true;
       transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
+      setTimeout(function () { isAutoScrolling.current = false; }, 50);
     }
-  }, [visCount, wordCounts, locked]);
+  }, [visCount, wordCounts, locked, autoScrollFrozen]);
 
-  // Build flat list of individual flags with their parent line info
-  var sidebarFlags: { flag: TranscriptFlag; line: TranscriptLine; lineIdx: number }[] = [];
+  // Detect scroll position: show/hide resume pill, freeze/unfreeze auto-scroll
+  var handleTranscriptScroll = function () {
+    if (isAutoScrolling.current) return;
+    var el = transcriptRef.current;
+    if (!el) return;
+    var distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    if (distFromBottom > 100) {
+      if (!autoScrollFrozen) setAutoScrollFrozen(true);
+      if (!showResumePill) setShowResumePill(true);
+    } else if (distFromBottom < 60) {
+      if (autoScrollFrozen) setAutoScrollFrozen(false);
+      if (showResumePill) setShowResumePill(false);
+    }
+  };
+
+  // Wheel handler: detect user intent to scroll up BEFORE auto-scroll can fight back
+  var handleTranscriptWheel = function (e: React.WheelEvent) {
+    if (e.deltaY < 0) {
+      // User is scrolling up — freeze immediately
+      if (!autoScrollFrozen) setAutoScrollFrozen(true);
+      if (!showResumePill) setShowResumePill(true);
+    }
+  };
+
+  // Build flat flag list
+  var allFlags: { flag: TranscriptFlag; line: TranscriptLine; lineIdx: number }[] = [];
   LINES.forEach(function (line, i) {
     if (line.flags && line.flags.length > 0 && locked[i]) {
       line.flags.forEach(function (flag) {
-        sidebarFlags.push({ flag: flag, line: line, lineIdx: i });
+        allFlags.push({ flag: flag, line: line, lineIdx: i });
       });
     }
   });
-  var totalFlagCount = sidebarFlags.length;
-  var undismissedCount = sidebarFlags.filter(function (f) { return !dismissed[f.flag.id]; }).length;
-  var undismissedItems = sidebarFlags.filter(function (f) { return !dismissed[f.flag.id]; }).slice().reverse();
-  var dismissedItems = sidebarFlags.filter(function (f) { return dismissed[f.flag.id]; });
-  var sortedSidebarFlags = undismissedItems.concat(dismissedItems);
+  var totalFlagCount = allFlags.length;
 
-  // Auto-expand newly arriving flags
-  useEffect(function () {
-    var newExpanded: Record<string, boolean> = {};
-    var changed = false;
-    sidebarFlags.forEach(function (item) {
-      if (expandedFlags[item.flag.id] === undefined && !dismissed[item.flag.id]) {
-        newExpanded[item.flag.id] = true;
-        changed = true;
-      }
-    });
-    if (changed) {
-      setExpandedFlags(function (prev) {
-        var n: Record<string, boolean> = {};
-        for (var k in prev) n[k] = prev[k];
-        for (var k in newExpanded) n[k] = newExpanded[k];
-        return n;
-      });
+  // Find active flag data for preview pane
+  var activeItem: { flag: TranscriptFlag; line: TranscriptLine; lineIdx: number } | null = null;
+  if (activeFlagId) {
+    for (var ai = 0; ai < allFlags.length; ai++) {
+      if (allFlags[ai].flag.id === activeFlagId) { activeItem = allFlags[ai]; break; }
     }
-  }, [totalFlagCount]);
-
-  // Auto-scroll sidebar when activeFlagId changes
-  useEffect(function () {
-    if (activeFlagId) {
-      var el = sidebarRefs.current[activeFlagId];
-      if (el) el.scrollIntoView({ behavior: "smooth", block: "nearest" });
-    }
-  }, [activeFlagId]);
+  }
+  var previewOpen = activeFlagId !== null && activeItem !== null;
 
   var isLive = visCount < LINES.length;
 
@@ -660,15 +641,92 @@ function LiveAnalysis() {
     return (mm < 10 ? "0" : "") + mm + ":" + (ss < 10 ? "0" : "") + ss;
   })();
 
+  // Chip click: toggle or swap preview
+  var handleChipClick = function (flagId: string) {
+    if (activeFlagId === flagId) {
+      // Toggle off — close pane, resume auto-scroll
+      setActiveFlagId(null);
+      setAutoScrollFrozen(false);
+      setShowResumePill(false);
+      setTimeout(function () {
+        if (transcriptRef.current) {
+          isAutoScrolling.current = true;
+          transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
+          setTimeout(function () { isAutoScrolling.current = false; }, 50);
+        }
+      }, 20);
+    } else {
+      // Activate or swap — useEffect handles scroll centering + preview reset
+      setActiveFlagId(flagId);
+      setAutoScrollFrozen(true);
+      setShowResumePill(true);
+    }
+  };
+
+  var closePreview = function () {
+    setActiveFlagId(null);
+    setAutoScrollFrozen(false);
+    setShowResumePill(false);
+    setTimeout(function () {
+      if (transcriptRef.current) {
+        isAutoScrolling.current = true;
+        transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
+        setTimeout(function () { isAutoScrolling.current = false; }, 50);
+      }
+    }, 20);
+  };
+
+  var resumeLive = function () {
+    setAutoScrollFrozen(false);
+    setShowResumePill(false);
+    if (transcriptRef.current) {
+      isAutoScrolling.current = true;
+      transcriptRef.current.scrollTo({ top: transcriptRef.current.scrollHeight, behavior: "smooth" });
+      setTimeout(function () { isAutoScrolling.current = false; }, 500);
+    }
+  };
+
+  var showToast = function () { setToast("Document viewer coming soon"); };
+
+  // On every activeFlagId change: center the flagged line + reset preview scroll
+  useEffect(function () {
+    if (!activeFlagId) return;
+    // Reset preview pane to top (deferred to after layout)
+    requestAnimationFrame(function () {
+      if (previewScrollRef.current) {
+        previewScrollRef.current.scrollTop = 0;
+      }
+    });
+    // Scroll the flagged transcript line to center — manual calculation
+    // to avoid scrollIntoView which scrolls ALL ancestor containers
+    var flagItem: { flag: TranscriptFlag; line: TranscriptLine; lineIdx: number } | null = null;
+    for (var fi = 0; fi < allFlags.length; fi++) {
+      if (allFlags[fi].flag.id === activeFlagId) { flagItem = allFlags[fi]; break; }
+    }
+    if (flagItem && transcriptRef.current) {
+      var lineEl = lineRefs.current[flagItem.lineIdx];
+      if (lineEl) {
+        var container = transcriptRef.current;
+        var lineTop = lineEl.offsetTop - container.offsetTop;
+        var lineHeight = lineEl.offsetHeight;
+        var containerHeight = container.clientHeight;
+        var targetScroll = lineTop - (containerHeight / 2) + (lineHeight / 2);
+        isAutoScrolling.current = true;
+        container.scrollTo({ top: Math.max(0, targetScroll), behavior: "smooth" });
+        setTimeout(function () { isAutoScrolling.current = false; }, 500);
+      }
+    }
+  }, [activeFlagId]);
+
   return (
-    <div style={{ minHeight: "100vh", background: C.bgSub, display: "flex", flexDirection: "column" }}>
+    <div style={{ height: "100%", background: C.bgSub, display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <AppNav />
 
       {/* ── Sub-header bar ── */}
       <div style={{
         background: C.bg, borderBottom: "1px solid " + C.border,
         padding: "0 32px", display: "flex", alignItems: "center",
-        justifyContent: "space-between", height: 48,
+        justifyContent: "space-between", height: 48, flexShrink: 0,
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
@@ -679,9 +737,6 @@ function LiveAnalysis() {
           <span style={{ fontSize: 13, fontWeight: 600, color: C.text, maxWidth: 400, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {SESSION.title}
           </span>
-          {totalFlagCount > 0 && (
-            <span style={{ fontSize: 11, fontWeight: 700, color: "#fff", background: "#dc2626", padding: "2px 8px", borderRadius: 10 }}>{totalFlagCount}</span>
-          )}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
           {isLive && (
@@ -701,8 +756,8 @@ function LiveAnalysis() {
       {/* ── Two-panel layout ── */}
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
 
-        {/* LEFT — Live Transcript */}
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", borderRight: "1px solid " + C.border }}>
+        {/* Transcript (full width, narrows when preview opens) */}
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", position: "relative" }}>
           {/* Subject bar */}
           <div style={{
             padding: "10px 24px", borderBottom: "1px solid " + C.border,
@@ -726,14 +781,13 @@ function LiveAnalysis() {
           </div>
 
           {/* Transcript content */}
-          <div ref={transcriptRef} style={{ flex: 1, overflow: "auto" }}>
+          <div ref={transcriptRef} onScroll={handleTranscriptScroll} onWheel={handleTranscriptWheel} style={{ flex: 1, overflow: "auto" }}>
             {LINES.map(function (line, i) {
               if (i >= visCount) return null;
               var isQuestion = line.type === "q";
               var isLocked = locked[i];
               var isStreaming = !isLocked;
               var hasFlags = line.flags && line.flags.length > 0 && isLocked;
-              var lineHasActiveFlag = hasFlags && line.flags!.some(function (f) { return f.id === activeFlagId; });
 
               // Merge all keywords from all flags on this line
               var allKeywords: string[] = [];
@@ -748,9 +802,7 @@ function LiveAnalysis() {
               var allWordsShown = revealedCount >= words.length;
 
               return (
-                <div key={i} style={{
-                  borderLeft: hasFlags ? "3px solid #dc2626" : "3px solid transparent",
-                  background: lineHasActiveFlag ? "rgba(220,38,38,0.03)" : "transparent",
+                <div key={i} ref={function (el) { lineRefs.current[i] = el; }} style={{
                   animation: "cc-fade-in 0.3s ease",
                 }}>
                   {/* Statement row */}
@@ -770,7 +822,7 @@ function LiveAnalysis() {
                       )}
                     </div>
                     <p style={{
-                      fontSize: 16, lineHeight: 1.55, margin: 0,
+                      fontSize: 19, lineHeight: 1.6, margin: 0,
                       color: isStreaming ? C.textMuted : C.text,
                       fontWeight: isQuestion ? 500 : 400,
                       opacity: isStreaming ? 0.55 : 1,
@@ -789,32 +841,26 @@ function LiveAnalysis() {
                       )}
                     </p>
 
-                    {/* Inline flag chips */}
+                    {/* Inline chips */}
                     {hasFlags && (
                       <div style={{ display: "flex", flexDirection: "column", gap: 5, marginTop: 7 }}>
                         {line.flags!.map(function (flag) {
                           var isActive = activeFlagId === flag.id;
                           return (
-                            <div key={flag.id} onClick={function () {
-                              var newId = isActive ? null : flag.id;
-                              setActiveFlagId(newId);
-                              if (newId) {
-                                setExpandedFlags(function (prev) { var n: Record<string, boolean> = {}; for (var k in prev) n[k] = prev[k]; n[newId] = true; return n; });
-                                setTimeout(function () {
-                                  var el = sidebarRefs.current[newId];
-                                  if (el) el.scrollIntoView({ behavior: "smooth", block: "nearest" });
-                                }, 50);
-                              }
-                            }} style={{
-                              display: "inline-flex", alignItems: "center", gap: 5,
-                              background: isActive ? "rgba(220,38,38,0.12)" : "rgba(220,38,38,0.06)",
-                              border: "1px solid " + (isActive ? "rgba(220,38,38,0.50)" : "rgba(220,38,38,0.18)"),
-                              borderRadius: 20, padding: "2px 9px 2px 8px",
+                            <div key={flag.id} onClick={function () { handleChipClick(flag.id); }}
+                            onMouseEnter={function (e) { e.currentTarget.style.boxShadow = "0 1px 6px rgba(220,38,38,0.15)"; e.currentTarget.style.background = isActive ? "rgba(220,38,38,0.18)" : "rgba(220,38,38,0.10)"; }}
+                            onMouseLeave={function (e) { e.currentTarget.style.boxShadow = "none"; e.currentTarget.style.background = isActive ? "rgba(220,38,38,0.14)" : "rgba(220,38,38,0.06)"; }}
+                            style={{
+                              display: "inline-flex", alignItems: "center", gap: 6,
+                              background: isActive ? "rgba(220,38,38,0.14)" : "rgba(220,38,38,0.06)",
+                              border: isActive ? "1.5px solid rgba(220,38,38,0.5)" : "1px solid rgba(220,38,38,0.18)",
+                              borderRadius: 24, padding: "4px 14px 4px 12px",
                               cursor: "pointer", alignSelf: "flex-start",
-                              transition: "background 0.15s, border-color 0.15s",
+                              animation: "cc-chip-enter 0.6s ease-out forwards",
+                              transition: "background 0.15s, border-color 0.15s, box-shadow 0.15s",
                             }}>
-                              <span style={{ fontSize: 11, fontWeight: 600, color: "#dc2626" }}>{flag.insight}</span>
-                              <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.5, flexShrink: 0 }}>
+                              <span style={{ fontSize: 19, fontWeight: 600, color: "#dc2626" }}>{flag.insight}</span>
+                              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.5, flexShrink: 0 }}>
                                 <polyline points="9 18 15 12 9 6" />
                               </svg>
                             </div>
@@ -839,159 +885,90 @@ function LiveAnalysis() {
               </div>
             )}
           </div>
+          {/* Resume pill */}
+          {showResumePill && (
+            <div onClick={resumeLive}
+            onMouseEnter={function (e) { e.currentTarget.style.background = "rgba(15,23,42,1)"; e.currentTarget.style.boxShadow = "0 4px 20px rgba(0,0,0,0.25)"; }}
+            onMouseLeave={function (e) { e.currentTarget.style.background = "rgba(15,23,42,0.92)"; e.currentTarget.style.boxShadow = "0 4px 16px rgba(0,0,0,0.18)"; }}
+            style={{
+              position: "absolute", bottom: 20, left: "50%", transform: "translateX(-50%)",
+              background: "rgba(15,23,42,0.92)", backdropFilter: "blur(8px)", color: "#fff",
+              borderRadius: 24, padding: "10px 22px", minHeight: 44,
+              boxShadow: "0 4px 16px rgba(0,0,0,0.18)",
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+              cursor: "pointer", zIndex: 10,
+              animation: "cc-pill-enter 0.3s ease-out forwards, cc-pill-bob 2s ease-in-out 0.3s infinite",
+            }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
+              <span style={{ fontSize: 13, fontWeight: 600, color: "#fff" }}>Resume live</span>
+            </div>
+          )}
         </div>
 
-        {/* RIGHT — Contradictions Sidebar */}
-        <div style={{ width: 300, display: "flex", flexDirection: "column", background: C.bg }}>
-          <div style={{ padding: "10px 18px", borderBottom: "1px solid " + C.border, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ fontSize: 14, fontWeight: 600, color: C.text }}>Contradictions</span>
-              {undismissedCount > 0 && (
-                <span style={{ fontSize: 11, fontWeight: 700, color: "#fff", background: "#dc2626", padding: "1px 7px", borderRadius: 8, minWidth: 18, textAlign: "center" }}>{undismissedCount}</span>
-              )}
-            </div>
-          </div>
+        {/* Preview pane (slides in from right) */}
+        <div style={{
+          width: previewOpen ? 380 : 0,
+          flexShrink: 0,
+          overflow: "hidden",
+          transition: "width 150ms ease",
+          borderLeft: previewOpen ? "1px solid " + C.border : "none",
+          background: C.bg,
+          display: "flex", flexDirection: "column" as const,
+        }}>
+          {activeItem && (
+            <div key={activeFlagId} ref={previewScrollRef} style={{ width: 380, padding: "20px 24px", flex: 1, minHeight: 0, overflow: "auto" }}>
+              {/* Close button */}
+              <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+                <div onClick={closePreview} style={{
+                  width: 28, height: 28, borderRadius: 6,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  cursor: "pointer", background: "transparent",
+                }}
+                onMouseEnter={function (e) { e.currentTarget.style.background = C.bgSub; }}
+                onMouseLeave={function (e) { e.currentTarget.style.background = "transparent"; }}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.textMuted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                  </svg>
+                </div>
+              </div>
 
-          <div ref={sidebarScrollRef} style={{ flex: 1, overflow: "auto", padding: "10px 12px" }}>
-            {sortedSidebarFlags.length === 0 ? (
-              <div style={{ padding: "48px 16px", textAlign: "center" }}>
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke={C.border} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ margin: "0 auto 12px", display: "block" }}>
-                  <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" /><polyline points="14 2 14 8 20 8" />
-                  <line x1="9" y1="15" x2="15" y2="15" />
-                </svg>
-                <p style={{ fontSize: 13, color: C.textMuted, lineHeight: 1.5, margin: 0 }}>
-                  Contradictions appear here when testimony conflicts with your case documents.
+              {/* Section header + counter */}
+              <span style={{ fontSize: 13, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em", display: "block" }}>Evidence</span>
+              <span style={{ fontSize: 12, color: "#94a3b8", fontWeight: 400, display: "block", marginTop: 2, marginBottom: 16 }}>
+                {(function () {
+                  var currentIdx = -1;
+                  for (var ci = 0; ci < allFlags.length; ci++) {
+                    if (allFlags[ci].flag.id === activeFlagId) { currentIdx = ci; break; }
+                  }
+                  return (currentIdx + 1) + " of " + allFlags.length;
+                })()}
+              </span>
+
+              {/* Testimony quote */}
+              <p style={{ fontSize: 16, fontWeight: 500, color: "#0f172a", lineHeight: 1.6, margin: "0 0 0" }}>
+                &ldquo;{activeItem.line.text}&rdquo;
+              </p>
+
+              {/* Source label + document quote */}
+              <div style={{ marginTop: 16 }}>
+                <span onClick={showToast} style={{ fontSize: 13, fontWeight: 600, color: "#1e40af", cursor: "pointer" }}>
+                  {activeItem.flag.doc}, p.&nbsp;{activeItem.flag.page}:
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#1e40af" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginLeft: 3, verticalAlign: "middle" }}>
+                    <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" />
+                  </svg>
+                </span>
+                <p style={{ fontSize: 16, fontStyle: "italic", color: "#64748b", lineHeight: 1.6, margin: "5px 0 0" }}>
+                  &ldquo;{activeItem.flag.quote}&rdquo;
                 </p>
               </div>
-            ) : (
-              sortedSidebarFlags.map(function (item) {
-                var flag = item.flag;
-                var line = item.line;
-                var isDis = dismissed[flag.id];
-                var isExp = expandedFlags[flag.id] && !isDis;
-                var isActive = activeFlagId === flag.id;
-                var truncated = line.text.length > 55 ? "\u201C" + line.text.slice(0, 55) + "…\u201D" : "\u201C" + line.text + "\u201D";
 
-                var toggleExpand = function () {
-                  setExpandedFlags(function (prev) {
-                    var n: Record<string, boolean> = {};
-                    for (var k in prev) n[k] = prev[k];
-                    n[flag.id] = !prev[flag.id];
-                    return n;
-                  });
-                };
-
-                return (
-                  <div key={flag.id} ref={function (el) { sidebarRefs.current[flag.id] = el; }} style={{
-                    borderLeft: "3px solid #dc2626",
-                    borderTop: isActive ? "1.5px solid #dc2626" : "1px solid " + C.border,
-                    borderRight: isActive ? "1.5px solid #dc2626" : "1px solid " + C.border,
-                    borderBottom: isActive ? "1.5px solid #dc2626" : "1px solid " + C.border,
-                    boxShadow: isActive ? "0 2px 12px rgba(220,38,38,0.10)" : "none",
-                    borderRadius: 8, marginBottom: 6,
-                    animation: "cc-slide-up 0.3s ease",
-                    opacity: isDis ? 0.45 : 1,
-                    transition: "opacity 0.3s, border-color 0.2s, box-shadow 0.2s",
-                  }}>
-                    {!isExp ? (
-                      /* ── Collapsed card ── */
-                      <div onClick={function () { toggleExpand(); setActiveFlagId(flag.id); }} style={{
-                        display: "flex", alignItems: "center", gap: 8,
-                        padding: "9px 12px", cursor: "pointer",
-                      }}>
-                        <span style={{
-                          flex: 1, fontSize: 12, fontWeight: 500, color: C.text,
-                          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                        }}>{truncated}</span>
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={C.textMuted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                          <polyline points="6 9 12 15 18 9" />
-                        </svg>
-                      </div>
-                    ) : (
-                      /* ── Expanded card: two-tone quote blocks ── */
-                      <div style={{ padding: "12px 14px" }}>
-                        {/* Header: timestamp + collapse chevron */}
-                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-                          <span style={{ fontSize: 10, color: C.textMuted, fontFamily: "'DM Mono', monospace" }}>
-                            {line.time.split(":").slice(1).join(":")}
-                          </span>
-                          <svg onClick={toggleExpand} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={C.textMuted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ cursor: "pointer", flexShrink: 0 }}>
-                            <polyline points="18 15 12 9 6 15" />
-                          </svg>
-                        </div>
-
-                        {/* Testimony block (red tint) */}
-                        <div style={{
-                          background: C.saidBg, border: "1px solid " + C.saidBorder,
-                          borderRadius: 7, padding: "9px 11px", marginBottom: 6,
-                        }}>
-                          <span style={{ fontSize: 9, fontWeight: 700, color: C.flag, textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 4 }}>Testimony</span>
-                          <p style={{ fontSize: 12, color: C.text, margin: 0, lineHeight: 1.5, fontWeight: 500 }}>
-                            &ldquo;{line.text}&rdquo;
-                          </p>
-                        </div>
-
-                        {/* Document block (blue tint) */}
-                        <div style={{
-                          background: C.docBg, border: "1px solid " + C.docBorder,
-                          borderRadius: 7, padding: "9px 11px", marginBottom: 8,
-                        }}>
-                          <span style={{ fontSize: 9, fontWeight: 700, color: C.docText, textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 4 }}>
-                            {flag.doc}, p.&nbsp;{flag.page}
-                          </span>
-                          <p style={{ fontSize: 12, color: C.text, margin: 0, lineHeight: 1.5, fontStyle: "italic" }}>
-                            &ldquo;{flag.quote}&rdquo;
-                          </p>
-                        </div>
-
-                        {/* Follow-up + Dismiss row */}
-                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                          <SidebarFollowUp text={flag.suggestedFollowUp} />
-                          <div onClick={function (e) {
-                            e.stopPropagation();
-                            setDismissed(function (prev) { var n: Record<string, boolean> = {}; for (var k in prev) n[k] = prev[k]; n[flag.id] = true; return n; });
-                            setExpandedFlags(function (prev) { var n: Record<string, boolean> = {}; for (var k in prev) n[k] = prev[k]; n[flag.id] = false; return n; });
-                            if (activeFlagId === flag.id) setActiveFlagId(null);
-                          }} style={{
-                            display: "inline-flex", alignItems: "center", gap: 5,
-                            border: "1px solid " + C.border, background: C.bgSub,
-                            borderRadius: 6, padding: "3px 10px 3px 5px", cursor: "pointer",
-                            flexShrink: 0,
-                          }}
-                          onMouseEnter={function (e) { e.currentTarget.style.borderColor = C.textSec; e.currentTarget.style.background = "#eef2f6"; }}
-                          onMouseLeave={function (e) { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.background = C.bgSub; }}
-                          >
-                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
-                              <circle cx="12" cy="12" r="10" stroke={C.textMuted} strokeWidth="1.5" fill="none" />
-                              <polyline points="8 12 11 15 16 9" stroke={C.textMuted} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" opacity="0.35" />
-                            </svg>
-                            <span style={{ fontSize: 10, fontWeight: 500, color: C.textSec }}>Dismiss</span>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Dismissed state overlay */}
-                    {isDis && (
-                      <div style={{ padding: "9px 12px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                            <circle cx="12" cy="12" r="10" fill={C.green} />
-                            <polyline points="8 12 11 15 16 9" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                          </svg>
-                          <span style={{ fontSize: 10, fontWeight: 500, color: C.green }}>Reviewed</span>
-                        </div>
-                        <span onClick={function (e) {
-                          e.stopPropagation();
-                          setDismissed(function (prev) { var n: Record<string, boolean> = {}; for (var k in prev) n[k] = prev[k]; delete n[flag.id]; return n; });
-                        }} style={{ fontSize: 10, color: C.textSec, cursor: "pointer", textDecoration: "underline" }}>undo</span>
-                      </div>
-                    )}
-                  </div>
-                );
-              })
-            )}
-          </div>
+              {/* Follow-up */}
+              <FollowUpSection text={activeItem.flag.suggestedFollowUp} />
+            </div>
+          )}
         </div>
       </div>
 
