@@ -398,6 +398,7 @@ function GlobalStyles() {
 @keyframes cc-chip-enter{0%{opacity:0.5;transform:scale(0.95)}60%{opacity:1;transform:scale(1.03)}100%{opacity:1;transform:scale(1)}}
 @keyframes cc-pill-bob{0%,100%{transform:translateX(-50%) translateY(0)}50%{transform:translateX(-50%) translateY(-3px)}}
 @keyframes cc-pill-enter{from{opacity:0;transform:translateX(-50%) translateY(10px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
+@keyframes cc-bracket-draw{from{stroke-dashoffset:400}to{stroke-dashoffset:0}}
 .cc-mark-reviewed{text-decoration:none;transition:color 0.15s,text-decoration 0.15s}
 .cc-mark-reviewed:hover{text-decoration:underline;color:#0f172a !important}
 `}</style>
@@ -540,6 +541,283 @@ function SessionSetup({ onStart }: { onStart: () => void }) {
 
 
 // ═══════════════════════════════════════════════════════════════════
+// HIGHLIGHTED TEXT WITH DATA ATTRIBUTES (for bracket anchoring)
+// ═══════════════════════════════════════════════════════════════════
+
+function FlagHighlightedText({ text, flags }: { text: string; flags: TranscriptFlag[] }) {
+  if (!flags || flags.length === 0) return <>{text}</>;
+
+  var kwToFlag: Record<string, string> = {};
+  flags.forEach(function (flag) {
+    flag.keywords.forEach(function (kw) {
+      var key = kw.toLowerCase();
+      if (!kwToFlag[key]) kwToFlag[key] = flag.id;
+    });
+  });
+
+  var allKws: string[] = [];
+  flags.forEach(function (f) { allKws = allKws.concat(f.keywords); });
+  var escaped = allKws.map(function (kw) { return kw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); });
+  var regex = new RegExp("(" + escaped.join("|") + ")", "gi");
+  var parts = text.split(regex);
+
+  var seenFirst: Record<string, boolean> = {};
+
+  return (
+    <>
+      {parts.map(function (part, i) {
+        var flagId = kwToFlag[part.toLowerCase()];
+        if (flagId) {
+          var isFirst = !seenFirst[flagId];
+          if (isFirst) seenFirst[flagId] = true;
+          return (
+            <span key={i}
+              data-kw-flag={flagId}
+              data-kw-first={isFirst ? flagId : undefined}
+              style={{
+                background: "rgba(220,38,38,0.10)",
+                borderBottom: "1.5px solid rgba(220,38,38,0.50)",
+                fontWeight: 500, padding: "0 1px",
+              }}>
+              {part}
+            </span>
+          );
+        }
+        return <span key={i}>{part}</span>;
+      })}
+    </>
+  );
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+// TRANSCRIPT LINE — per-line component with connector bracket measurement
+// ═══════════════════════════════════════════════════════════════════
+
+function TranscriptLineRow({ line, index, visCount, wordCounts, locked, activeFlagId, onChipClick }: {
+  line: TranscriptLine; index: number; visCount: number;
+  wordCounts: Record<number, number>; locked: Record<number, boolean>;
+  activeFlagId: string | null; onChipClick: (flagId: string) => void;
+}) {
+  var containerRef = useRef<HTMLDivElement>(null);
+  var [chipLayout, setChipLayout] = useState<{ positions: Record<string, { top: number; left: number }>; minHeight: number } | null>(null);
+  var [brackets, setBrackets] = useState<{ path: string; id: string }[]>([]);
+  var [resizeTick, setResizeTick] = useState(0);
+
+  var isVisible = index < visCount;
+  var isLocked = !!locked[index];
+  var isStreaming = isVisible && !isLocked;
+  var hasFlags = isLocked && line.flags !== undefined && line.flags.length > 0;
+  var isQuestion = line.type === "q";
+
+  // Recalculate on resize
+  useEffect(function () {
+    var onResize = function () { setResizeTick(function (t) { return t + 1; }); };
+    window.addEventListener("resize", onResize);
+    return function () { window.removeEventListener("resize", onResize); };
+  }, []);
+
+  /* Measure keyword positions → compute bracket paths + chip positions.
+     Each bracket endpoint Y = phraseBottom + 22, not derived from the chip
+     or the paragraph bottom. Chips are absolutely positioned at the endpoint.
+     Same-line collisions: place chips side-by-side when horizontal space allows,
+     otherwise stack vertically with a stepped bracket. */
+  useEffect(function () {
+    if (!hasFlags || !containerRef.current) {
+      if (chipLayout) setChipLayout(null);
+      if (brackets.length > 0) setBrackets([]);
+      return;
+    }
+    var timer = setTimeout(function () {
+      var container = containerRef.current;
+      if (!container) return;
+      var cRect = container.getBoundingClientRect();
+      var CHIP_H = 32;
+      var CHIP_GAP = 8;
+      var DROP = 22;
+      var R = 6;
+      var containerW = cRect.width;
+      var positions: Record<string, { top: number; left: number }> = {};
+      var newBrackets: { path: string; id: string }[] = [];
+      var placed: { bracketEndY: number; left: number; right: number; id: string }[] = [];
+
+      var estChipWidth = function (text: string) { return text.length * 9.5 + 42; };
+
+      line.flags!.forEach(function (flag) {
+        var kwEl = container.querySelector('[data-kw-first="' + flag.id + '"]');
+        if (!kwEl) return;
+        var kwRect = (kwEl as HTMLElement).getBoundingClientRect();
+        var phraseLeft = kwRect.left - cRect.left;
+        var phraseBottom = kwRect.bottom - cRect.top;
+
+        var bracketEndY = phraseBottom + DROP;
+        var chipLeft = phraseLeft + 20;
+        var chipW = estChipWidth(flag.insight);
+        var stacked = false;
+
+        // Check for same-row collision
+        var sameRow: typeof placed = [];
+        for (var ci = 0; ci < placed.length; ci++) {
+          if (Math.abs(bracketEndY - placed[ci].bracketEndY) < CHIP_H) {
+            sameRow.push(placed[ci]);
+          }
+        }
+
+        if (sameRow.length > 0) {
+          var rightmost = sameRow[0];
+          for (var ri = 1; ri < sameRow.length; ri++) {
+            if (sameRow[ri].right > rightmost.right) rightmost = sameRow[ri];
+          }
+          var sideLeft = Math.max(chipLeft, rightmost.right + CHIP_GAP);
+          if (sideLeft + chipW < containerW - 20) {
+            chipLeft = sideLeft;
+            bracketEndY = rightmost.bracketEndY;
+          } else {
+            bracketEndY = rightmost.bracketEndY + CHIP_H + 6;
+            stacked = true;
+          }
+        }
+
+        placed.push({ bracketEndY: bracketEndY, left: chipLeft, right: chipLeft + chipW, id: flag.id });
+
+        positions[flag.id] = {
+          top: bracketEndY - CHIP_H / 2,
+          left: chipLeft,
+        };
+
+        // Bracket path
+        if (stacked) {
+          var stubY = phraseBottom + DROP;
+          var path = "M " + phraseLeft + " " + (phraseBottom + 2)
+            + " L " + phraseLeft + " " + (stubY - R)
+            + " Q " + phraseLeft + " " + stubY + " " + (phraseLeft + R) + " " + stubY
+            + " L " + (chipLeft - R) + " " + stubY
+            + " Q " + chipLeft + " " + stubY + " " + chipLeft + " " + (stubY + R)
+            + " L " + chipLeft + " " + bracketEndY;
+          newBrackets.push({ path: path, id: flag.id });
+        } else {
+          var path = "M " + phraseLeft + " " + (phraseBottom + 2)
+            + " L " + phraseLeft + " " + (bracketEndY - R)
+            + " Q " + phraseLeft + " " + bracketEndY + " " + (phraseLeft + R) + " " + bracketEndY
+            + " L " + chipLeft + " " + bracketEndY;
+          newBrackets.push({ path: path, id: flag.id });
+        }
+      });
+
+      var maxBottom = 0;
+      Object.keys(positions).forEach(function (id) {
+        var b = positions[id].top + CHIP_H;
+        if (b > maxBottom) maxBottom = b;
+      });
+
+      setChipLayout({ positions: positions, minHeight: maxBottom + 12 });
+      setBrackets(newBrackets);
+    }, 60);
+    return function () { clearTimeout(timer); };
+  }, [isLocked, hasFlags, resizeTick]);
+
+  if (!isVisible) return null;
+
+  var words = line.text.split(" ");
+  var revealedCount = isLocked ? words.length : (wordCounts[index] || 0);
+  var visibleText = words.slice(0, revealedCount).join(" ");
+  var allWordsShown = revealedCount >= words.length;
+  var chipsReady = chipLayout !== null;
+
+  return (
+    <div style={{ animation: "cc-fade-in 0.3s ease" }}>
+      <div ref={containerRef} style={{ padding: "12px 20px", position: "relative", minHeight: chipsReady ? chipLayout.minHeight : undefined }}>
+        {/* Speaker info */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+          <span style={{ fontSize: 13, color: C.textMuted, fontFamily: "'DM Mono', monospace", flexShrink: 0 }}>
+            {line.time.split(":").slice(1).join(":")}
+          </span>
+          {isLocked && (
+            <>
+              <span style={{ fontSize: 14, fontWeight: 600, color: isQuestion ? C.textMuted : C.text }}>{line.speaker}</span>
+              <span style={{ fontSize: 9, color: C.textMuted, background: C.bgSub, padding: "1px 6px", borderRadius: 3, fontWeight: 500 }}>{line.role}</span>
+            </>
+          )}
+          {isStreaming && (
+            <span style={{ fontSize: 11, color: C.textMuted, fontStyle: "italic" }}>transcribing…</span>
+          )}
+        </div>
+
+        {/* Text */}
+        <p style={{
+          fontSize: 19, lineHeight: 1.6, margin: 0,
+          color: isStreaming ? C.textMuted : C.text,
+          fontWeight: isQuestion ? 500 : 400,
+          opacity: isStreaming ? 0.55 : 1,
+          transition: "opacity 0.3s, color 0.3s",
+        }}>
+          {isLocked && hasFlags
+            ? <FlagHighlightedText text={line.text} flags={line.flags!} />
+            : visibleText
+          }
+          {isStreaming && !allWordsShown && (
+            <span style={{ display: "inline-flex", gap: 2, marginLeft: 6, verticalAlign: "middle" }}>
+              {[0, 1, 2].map(function (d) {
+                return <span key={d} style={{ width: 3, height: 3, borderRadius: 2, background: C.textMuted, animation: "cc-typing 1.2s ease-in-out " + (d * 0.2) + "s infinite" }} />;
+              })}
+            </span>
+          )}
+        </p>
+
+        {/* Inline chips — absolutely positioned at bracket endpoints */}
+        {hasFlags && chipsReady && line.flags!.map(function (flag) {
+          var pos = chipLayout.positions[flag.id];
+          if (!pos) return null;
+          var isActive = activeFlagId === flag.id;
+          return (
+            <div key={flag.id} data-chip={flag.id}
+              onClick={function () { onChipClick(flag.id); }}
+              onMouseEnter={function (e) { e.currentTarget.style.boxShadow = "0 1px 6px rgba(220,38,38,0.15)"; e.currentTarget.style.background = isActive ? "rgba(220,38,38,0.18)" : "rgba(220,38,38,0.10)"; }}
+              onMouseLeave={function (e) { e.currentTarget.style.boxShadow = "none"; e.currentTarget.style.background = isActive ? "rgba(220,38,38,0.14)" : "rgba(220,38,38,0.06)"; }}
+              style={{
+                position: "absolute", top: pos.top, left: pos.left, zIndex: 2,
+                display: "inline-flex", alignItems: "center", gap: 6,
+                background: isActive ? "rgba(220,38,38,0.14)" : "rgba(220,38,38,0.06)",
+                border: isActive ? "1.5px solid rgba(220,38,38,0.5)" : "1px solid rgba(220,38,38,0.18)",
+                borderRadius: 24, padding: "4px 14px 4px 12px",
+                cursor: "pointer", whiteSpace: "nowrap",
+                animation: "cc-chip-enter 0.6s ease-out forwards",
+                transition: "background 0.15s, border-color 0.15s, box-shadow 0.15s",
+              }}>
+              <span style={{ fontSize: 17.5, fontWeight: 600, color: "#dc2626" }}>{flag.insight}</span>
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.5, flexShrink: 0 }}>
+                <polyline points="9 18 15 12 9 6" />
+              </svg>
+            </div>
+          );
+        })}
+
+        {/* Connector brackets (SVG overlay) */}
+        {brackets.length > 0 && (
+          <svg style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", pointerEvents: "none", overflow: "visible", zIndex: 1 }}>
+            {brackets.map(function (b) {
+              return (
+                <path key={b.id} d={b.path}
+                  fill="none"
+                  stroke="rgba(220,38,38,0.40)"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeDasharray="400"
+                  strokeDashoffset="400"
+                  style={{ animation: "cc-bracket-draw 0.5s ease-out 0.35s forwards" }}
+                />
+              );
+            })}
+          </svg>
+        )}
+      </div>
+    </div>
+  );
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
 // FLOW 3: LIVE ANALYSIS SESSION
 // ═══════════════════════════════════════════════════════════════════
 
@@ -550,10 +828,8 @@ function LiveAnalysis() {
   var [activeFlagId, setActiveFlagId] = useState<string | null>(null);
   var [autoScrollFrozen, setAutoScrollFrozen] = useState(false);
   var [showResumePill, setShowResumePill] = useState(false);
-  var [toast, setToast] = useState("");
   var transcriptRef = useRef<HTMLDivElement>(null);
   var previewScrollRef = useRef<HTMLDivElement>(null);
-  var lineRefs = useRef<Record<number, HTMLDivElement | null>>({});
   var isAutoScrolling = useRef(false);
 
   // Word-by-word streaming with dynamic timing
@@ -584,31 +860,29 @@ function LiveAnalysis() {
     }
   }, [visCount, wordCounts, locked, autoScrollFrozen]);
 
-  // Detect scroll position: show/hide resume pill, freeze/unfreeze auto-scroll
+  // Detect scroll position
   var handleTranscriptScroll = function () {
     if (isAutoScrolling.current) return;
     var el = transcriptRef.current;
     if (!el) return;
-    var distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    if (distFromBottom > 100) {
+    var dist = el.scrollHeight - el.scrollTop - el.clientHeight;
+    if (dist > 100) {
       if (!autoScrollFrozen) setAutoScrollFrozen(true);
       if (!showResumePill) setShowResumePill(true);
-    } else if (distFromBottom < 60) {
+    } else if (dist < 60) {
       if (autoScrollFrozen) setAutoScrollFrozen(false);
       if (showResumePill) setShowResumePill(false);
     }
   };
 
-  // Wheel handler: detect user intent to scroll up BEFORE auto-scroll can fight back
   var handleTranscriptWheel = function (e: React.WheelEvent) {
     if (e.deltaY < 0) {
-      // User is scrolling up — freeze immediately
       if (!autoScrollFrozen) setAutoScrollFrozen(true);
       if (!showResumePill) setShowResumePill(true);
     }
   };
 
-  // Build flat flag list
+  // Build flat flag list for counter
   var allFlags: { flag: TranscriptFlag; line: TranscriptLine; lineIdx: number }[] = [];
   LINES.forEach(function (line, i) {
     if (line.flags && line.flags.length > 0 && locked[i]) {
@@ -617,9 +891,8 @@ function LiveAnalysis() {
       });
     }
   });
-  var totalFlagCount = allFlags.length;
 
-  // Find active flag data for preview pane
+  // Active flag data for preview pane
   var activeItem: { flag: TranscriptFlag; line: TranscriptLine; lineIdx: number } | null = null;
   if (activeFlagId) {
     for (var ai = 0; ai < allFlags.length; ai++) {
@@ -641,10 +914,9 @@ function LiveAnalysis() {
     return (mm < 10 ? "0" : "") + mm + ":" + (ss < 10 ? "0" : "") + ss;
   })();
 
-  // Chip click: toggle or swap preview
+  // Chip click
   var handleChipClick = function (flagId: string) {
     if (activeFlagId === flagId) {
-      // Toggle off — close pane, resume auto-scroll
       setActiveFlagId(null);
       setAutoScrollFrozen(false);
       setShowResumePill(false);
@@ -656,7 +928,6 @@ function LiveAnalysis() {
         }
       }, 20);
     } else {
-      // Activate or swap — useEffect handles scroll centering + preview reset
       setActiveFlagId(flagId);
       setAutoScrollFrozen(true);
       setShowResumePill(true);
@@ -686,36 +957,12 @@ function LiveAnalysis() {
     }
   };
 
-  var showToast = function () { setToast("Document viewer coming soon"); };
-
-  // On every activeFlagId change: center the flagged line + reset preview scroll
+  // Reset preview scroll on flag switch
   useEffect(function () {
     if (!activeFlagId) return;
-    // Reset preview pane to top (deferred to after layout)
     requestAnimationFrame(function () {
-      if (previewScrollRef.current) {
-        previewScrollRef.current.scrollTop = 0;
-      }
+      if (previewScrollRef.current) previewScrollRef.current.scrollTop = 0;
     });
-    // Scroll the flagged transcript line to center — manual calculation
-    // to avoid scrollIntoView which scrolls ALL ancestor containers
-    var flagItem: { flag: TranscriptFlag; line: TranscriptLine; lineIdx: number } | null = null;
-    for (var fi = 0; fi < allFlags.length; fi++) {
-      if (allFlags[fi].flag.id === activeFlagId) { flagItem = allFlags[fi]; break; }
-    }
-    if (flagItem && transcriptRef.current) {
-      var lineEl = lineRefs.current[flagItem.lineIdx];
-      if (lineEl) {
-        var container = transcriptRef.current;
-        var lineTop = lineEl.offsetTop - container.offsetTop;
-        var lineHeight = lineEl.offsetHeight;
-        var containerHeight = container.clientHeight;
-        var targetScroll = lineTop - (containerHeight / 2) + (lineHeight / 2);
-        isAutoScrolling.current = true;
-        container.scrollTo({ top: Math.max(0, targetScroll), behavior: "smooth" });
-        setTimeout(function () { isAutoScrolling.current = false; }, 500);
-      }
-    }
   }, [activeFlagId]);
 
   return (
@@ -756,7 +1003,7 @@ function LiveAnalysis() {
       {/* ── Two-panel layout ── */}
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
 
-        {/* Transcript (full width, narrows when preview opens) */}
+        {/* Transcript */}
         <div style={{ flex: 1, display: "flex", flexDirection: "column", position: "relative" }}>
           {/* Subject bar */}
           <div style={{
@@ -780,96 +1027,13 @@ function LiveAnalysis() {
             </div>
           </div>
 
-          {/* Transcript content */}
+          {/* Transcript lines */}
           <div ref={transcriptRef} onScroll={handleTranscriptScroll} onWheel={handleTranscriptWheel} style={{ flex: 1, overflow: "auto" }}>
             {LINES.map(function (line, i) {
-              if (i >= visCount) return null;
-              var isQuestion = line.type === "q";
-              var isLocked = locked[i];
-              var isStreaming = !isLocked;
-              var hasFlags = line.flags && line.flags.length > 0 && isLocked;
-
-              // Merge all keywords from all flags on this line
-              var allKeywords: string[] = [];
-              if (hasFlags) {
-                line.flags!.forEach(function (f) { allKeywords = allKeywords.concat(f.keywords); });
-              }
-
-              // Word-by-word: show only revealed words while streaming
-              var words = line.text.split(" ");
-              var revealedCount = isLocked ? words.length : (wordCounts[i] || 0);
-              var visibleText = words.slice(0, revealedCount).join(" ");
-              var allWordsShown = revealedCount >= words.length;
-
               return (
-                <div key={i} ref={function (el) { lineRefs.current[i] = el; }} style={{
-                  animation: "cc-fade-in 0.3s ease",
-                }}>
-                  {/* Statement row */}
-                  <div style={{ padding: "12px 20px" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                      <span style={{ fontSize: 13, color: C.textMuted, fontFamily: "'DM Mono', monospace", flexShrink: 0 }}>
-                        {line.time.split(":").slice(1).join(":")}
-                      </span>
-                      {isLocked && (
-                        <>
-                          <span style={{ fontSize: 14, fontWeight: 600, color: isQuestion ? C.textMuted : C.text }}>{line.speaker}</span>
-                          <span style={{ fontSize: 9, color: C.textMuted, background: C.bgSub, padding: "1px 6px", borderRadius: 3, fontWeight: 500 }}>{line.role}</span>
-                        </>
-                      )}
-                      {isStreaming && (
-                        <span style={{ fontSize: 11, color: C.textMuted, fontStyle: "italic" }}>transcribing…</span>
-                      )}
-                    </div>
-                    <p style={{
-                      fontSize: 19, lineHeight: 1.6, margin: 0,
-                      color: isStreaming ? C.textMuted : C.text,
-                      fontWeight: isQuestion ? 500 : 400,
-                      opacity: isStreaming ? 0.55 : 1,
-                      transition: "opacity 0.3s, color 0.3s",
-                    }}>
-                      {isLocked && hasFlags
-                        ? <HighlightedText text={line.text} keywords={allKeywords} />
-                        : visibleText
-                      }
-                      {isStreaming && !allWordsShown && (
-                        <span style={{ display: "inline-flex", gap: 2, marginLeft: 6, verticalAlign: "middle" }}>
-                          {[0, 1, 2].map(function (d) {
-                            return <span key={d} style={{ width: 3, height: 3, borderRadius: 2, background: C.textMuted, animation: "cc-typing 1.2s ease-in-out " + (d * 0.2) + "s infinite" }} />;
-                          })}
-                        </span>
-                      )}
-                    </p>
-
-                    {/* Inline chips */}
-                    {hasFlags && (
-                      <div style={{ display: "flex", flexDirection: "column", gap: 5, marginTop: 7 }}>
-                        {line.flags!.map(function (flag) {
-                          var isActive = activeFlagId === flag.id;
-                          return (
-                            <div key={flag.id} onClick={function () { handleChipClick(flag.id); }}
-                            onMouseEnter={function (e) { e.currentTarget.style.boxShadow = "0 1px 6px rgba(220,38,38,0.15)"; e.currentTarget.style.background = isActive ? "rgba(220,38,38,0.18)" : "rgba(220,38,38,0.10)"; }}
-                            onMouseLeave={function (e) { e.currentTarget.style.boxShadow = "none"; e.currentTarget.style.background = isActive ? "rgba(220,38,38,0.14)" : "rgba(220,38,38,0.06)"; }}
-                            style={{
-                              display: "inline-flex", alignItems: "center", gap: 6,
-                              background: isActive ? "rgba(220,38,38,0.14)" : "rgba(220,38,38,0.06)",
-                              border: isActive ? "1.5px solid rgba(220,38,38,0.5)" : "1px solid rgba(220,38,38,0.18)",
-                              borderRadius: 24, padding: "4px 14px 4px 12px",
-                              cursor: "pointer", alignSelf: "flex-start",
-                              animation: "cc-chip-enter 0.6s ease-out forwards",
-                              transition: "background 0.15s, border-color 0.15s, box-shadow 0.15s",
-                            }}>
-                              <span style={{ fontSize: 19, fontWeight: 600, color: "#dc2626" }}>{flag.insight}</span>
-                              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.5, flexShrink: 0 }}>
-                                <polyline points="9 18 15 12 9 6" />
-                              </svg>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                </div>
+                <TranscriptLineRow key={i} line={line} index={i}
+                  visCount={visCount} wordCounts={wordCounts} locked={locked}
+                  activeFlagId={activeFlagId} onChipClick={handleChipClick} />
               );
             })}
 
@@ -885,20 +1049,21 @@ function LiveAnalysis() {
               </div>
             )}
           </div>
+
           {/* Resume pill */}
           {showResumePill && (
             <div onClick={resumeLive}
-            onMouseEnter={function (e) { e.currentTarget.style.background = "rgba(15,23,42,1)"; e.currentTarget.style.boxShadow = "0 4px 20px rgba(0,0,0,0.25)"; }}
-            onMouseLeave={function (e) { e.currentTarget.style.background = "rgba(15,23,42,0.92)"; e.currentTarget.style.boxShadow = "0 4px 16px rgba(0,0,0,0.18)"; }}
-            style={{
-              position: "absolute", bottom: 20, left: "50%", transform: "translateX(-50%)",
-              background: "rgba(15,23,42,0.92)", backdropFilter: "blur(8px)", color: "#fff",
-              borderRadius: 24, padding: "10px 22px", minHeight: 44,
-              boxShadow: "0 4px 16px rgba(0,0,0,0.18)",
-              display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-              cursor: "pointer", zIndex: 10,
-              animation: "cc-pill-enter 0.3s ease-out forwards, cc-pill-bob 2s ease-in-out 0.3s infinite",
-            }}>
+              onMouseEnter={function (e) { e.currentTarget.style.background = "rgba(15,23,42,1)"; e.currentTarget.style.boxShadow = "0 4px 20px rgba(0,0,0,0.25)"; }}
+              onMouseLeave={function (e) { e.currentTarget.style.background = "rgba(15,23,42,0.92)"; e.currentTarget.style.boxShadow = "0 4px 16px rgba(0,0,0,0.18)"; }}
+              style={{
+                position: "absolute", bottom: 20, left: "50%", transform: "translateX(-50%)",
+                background: "rgba(15,23,42,0.92)", backdropFilter: "blur(8px)", color: "#fff",
+                borderRadius: 24, padding: "10px 22px", minHeight: 44,
+                boxShadow: "0 4px 16px rgba(0,0,0,0.18)",
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                cursor: "pointer", zIndex: 10,
+                animation: "cc-pill-enter 0.3s ease-out forwards, cc-pill-bob 2s ease-in-out 0.3s infinite",
+              }}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="6 9 12 15 18 9" />
               </svg>
@@ -907,15 +1072,12 @@ function LiveAnalysis() {
           )}
         </div>
 
-        {/* Preview pane (slides in from right) */}
+        {/* ── Preview pane ── */}
         <div style={{
-          width: previewOpen ? 380 : 0,
-          flexShrink: 0,
-          overflow: "hidden",
+          width: previewOpen ? 380 : 0, flexShrink: 0, overflow: "hidden",
           transition: "width 150ms ease",
           borderLeft: previewOpen ? "1px solid " + C.border : "none",
-          background: C.bg,
-          display: "flex", flexDirection: "column" as const,
+          background: C.bg, display: "flex", flexDirection: "column" as const,
         }}>
           {activeItem && (
             <div key={activeFlagId} ref={previewScrollRef} style={{ width: 380, padding: "20px 24px", flex: 1, minHeight: 0, overflow: "auto" }}>
@@ -927,8 +1089,7 @@ function LiveAnalysis() {
                   cursor: "pointer", background: "transparent",
                 }}
                 onMouseEnter={function (e) { e.currentTarget.style.background = C.bgSub; }}
-                onMouseLeave={function (e) { e.currentTarget.style.background = "transparent"; }}
-                >
+                onMouseLeave={function (e) { e.currentTarget.style.background = "transparent"; }}>
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.textMuted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
                   </svg>
@@ -939,11 +1100,11 @@ function LiveAnalysis() {
               <span style={{ fontSize: 13, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em", display: "block" }}>Evidence</span>
               <span style={{ fontSize: 12, color: "#94a3b8", fontWeight: 400, display: "block", marginTop: 2, marginBottom: 16 }}>
                 {(function () {
-                  var currentIdx = -1;
+                  var idx = -1;
                   for (var ci = 0; ci < allFlags.length; ci++) {
-                    if (allFlags[ci].flag.id === activeFlagId) { currentIdx = ci; break; }
+                    if (allFlags[ci].flag.id === activeFlagId) { idx = ci; break; }
                   }
-                  return (currentIdx + 1) + " of " + allFlags.length;
+                  return (idx + 1) + " of " + allFlags.length;
                 })()}
               </span>
 
@@ -952,9 +1113,9 @@ function LiveAnalysis() {
                 &ldquo;{activeItem.line.text}&rdquo;
               </p>
 
-              {/* Source label + document quote */}
+              {/* Source citation */}
               <div style={{ marginTop: 16 }}>
-                <span onClick={showToast} style={{ fontSize: 13, fontWeight: 600, color: "#1e40af", cursor: "pointer" }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: "#1e40af", cursor: "pointer" }}>
                   {activeItem.flag.doc}, p.&nbsp;{activeItem.flag.page}:
                   <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#1e40af" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginLeft: 3, verticalAlign: "middle" }}>
                     <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" />
@@ -971,9 +1132,6 @@ function LiveAnalysis() {
           )}
         </div>
       </div>
-
-      {/* Toast */}
-      {toast && <Toast message={toast} onDone={function () { setToast(""); }} />}
     </div>
   );
 }
