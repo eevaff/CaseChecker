@@ -1208,17 +1208,11 @@ function PostSession({ onExport }: { onExport: () => void }) {
           <div style={{ width: 320, flexShrink: 0, display: "flex", flexDirection: "column", gap: 16 }}>
             {/* Summary */}
             <div style={{ background: C.bg, borderRadius: 12, border: "1px solid " + C.border, padding: 20 }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: C.textSec, textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 14 }}>Contradiction Summary</span>
-              <div style={{ display: "flex", gap: 12 }}>
-                <div style={{ flex: 1, textAlign: "center", padding: "14px 8px", background: C.highBg, borderRadius: 10, border: "1px solid " + C.highBorder }}>
-                  <div style={{ fontSize: 24, fontWeight: 800, color: C.red }}>{totalFlagCount}</div>
-                  <div style={{ fontSize: 11, color: C.red, fontWeight: 600 }}>Contradictions</div>
-                </div>
-                <div style={{ flex: 1, textAlign: "center", padding: "14px 8px", background: C.bgSub, borderRadius: 10 }}>
-                  <div style={{ fontSize: 24, fontWeight: 800, color: C.text }}>{MOCK_DOCS.length}</div>
-                  <div style={{ fontSize: 11, color: C.textMuted }}>Documents</div>
-                </div>
-              </div>
+              <span style={{ fontSize: 12, fontWeight: 600, color: C.textSec, textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 14 }}>Summary</span>
+              <p style={{ fontSize: 14, color: C.textSec, margin: 0, lineHeight: 1.6 }}>
+                <span style={{ fontWeight: 700, color: C.cc }}>{totalFlagCount}</span> contradictions identified across{" "}
+                <span style={{ fontWeight: 700, color: C.cc }}>{Object.keys(citedDocs).length}</span> documents
+              </p>
             </div>
 
             {/* Documents */}
@@ -1254,12 +1248,11 @@ function PostSession({ onExport }: { onExport: () => void }) {
                 { label: "Platform", value: "Zoom" },
                 { label: "Duration", value: "34 min 12 sec" },
                 { label: "Case Number", value: SESSION.caseNumber },
-                { label: "Statements", value: String(LINES.filter(function (l) { return l.type === "s"; }).length) },
               ].map(function (d, i) {
                 return (
                   <div key={d.label} style={{
                     display: "flex", justifyContent: "space-between", alignItems: "center",
-                    padding: "7px 0", borderBottom: i < 5 ? "1px solid " + C.borderLight : "none",
+                    padding: "7px 0", borderBottom: i < 4 ? "1px solid " + C.borderLight : "none",
                   }}>
                     <span style={{ fontSize: 12, color: C.textMuted }}>{d.label}</span>
                     <span style={{ fontSize: 12, fontWeight: 500, color: C.text }}>{d.value}</span>
@@ -1274,8 +1267,8 @@ function PostSession({ onExport }: { onExport: () => void }) {
             {/* Tabs */}
             <div style={{ display: "flex", borderBottom: "2px solid " + C.border }}>
               {[
-                { key: "contradictions", label: "Contradictions", count: totalFlagCount },
                 { key: "transcript", label: "Full Transcript", count: null },
+                { key: "contradictions", label: "Contradictions", count: totalFlagCount },
               ].map(function (t) {
                 var active = tab === t.key;
                 return (
@@ -1303,12 +1296,7 @@ function PostSession({ onExport }: { onExport: () => void }) {
                   var line = item.line;
                   return (
                     <div key={idx} style={{
-                      background: C.bg,
-                      borderLeft: "3px solid " + C.flag,
-                      borderTop: "1px solid " + C.border,
-                      borderRight: "1px solid " + C.border,
-                      borderBottom: "1px solid " + C.border,
-                      borderRadius: 10, padding: "16px 18px", marginBottom: 10,
+                      padding: "16px 18px", borderBottom: "1px solid " + C.borderLight,
                     }}>
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
                         <span style={{ fontSize: 14, fontWeight: 600, color: C.text }}>{flag.insight}</span>
@@ -1319,9 +1307,6 @@ function PostSession({ onExport }: { onExport: () => void }) {
 
                       {/* Citation table */}
                       <CitationTable flag={flag} onFileClick={showToast} />
-
-                      {/* Per-contradiction follow-up */}
-                      <FollowUpSection text={flag.suggestedFollowUp} />
                     </div>
                   );
                 })
@@ -1336,7 +1321,6 @@ function PostSession({ onExport }: { onExport: () => void }) {
                   return (
                     <div key={i} style={{
                       padding: "10px 16px", borderBottom: "1px solid " + C.borderLight,
-                      borderLeft: hasFlags ? "3px solid " + C.flag : "3px solid transparent",
                       background: "transparent",
                     }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
@@ -1404,6 +1388,8 @@ function PDFExport({ onClose }: { onClose: () => void }) {
     if (l.flags) l.flags.forEach(function (f) { pdfFlagItems.push({ line: l, flag: f }); });
   });
   var pdfTotalFlags = pdfFlagItems.length;
+  var pdfCitedDocs: Record<string, boolean> = {};
+  pdfFlagItems.forEach(function (item) { pdfCitedDocs[item.flag.doc] = true; });
   var [toast, setToast] = useState("");
 
   var showToast = function () { setToast("Document viewer coming soon"); };
@@ -1418,32 +1404,14 @@ function PDFExport({ onClose }: { onClose: () => void }) {
         background: C.bg, borderRadius: 16, maxWidth: 820, width: "100%",
         overflow: "hidden", boxShadow: "0 20px 60px rgba(0,0,0,0.2)",
       }}>
-        {/* Toolbar */}
-        <div style={{
-          padding: "14px 28px", borderBottom: "1px solid " + C.border,
-          display: "flex", justifyContent: "space-between", alignItems: "center", background: C.bgSub,
-        }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.textSec} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" /><polyline points="14 2 14 8 20 8" />
-            </svg>
-            <span style={{ fontSize: 14, fontWeight: 600, color: C.text }}>Export Preview</span>
-          </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button onClick={onClose} style={{ padding: "7px 16px", borderRadius: 8, border: "1.5px solid " + C.border, background: C.bg, fontSize: 12, fontWeight: 600, color: C.textSec, cursor: "pointer" }}>Cancel</button>
-            <button style={{ padding: "7px 16px", borderRadius: 8, border: "none", background: C.brand, color: "#fff", fontSize: 12, fontWeight: 600 }}>Download PDF</button>
-          </div>
-        </div>
-
         {/* Report */}
         <div style={{ padding: "36px 40px" }}>
           {/* Report header */}
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 28, paddingBottom: 20, borderBottom: "1px solid " + C.border }}>
             <div>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-                <Logo size={18} />
                 <VerloWordmark fontSize={16} />
-                <span style={{ fontSize: 10, fontWeight: 600, color: C.cc, background: C.ccLight, padding: "2px 6px", borderRadius: 4 }}>CaseChecker</span>
+                <span style={{ fontSize: 11, fontWeight: 600, color: C.textMuted }}>CaseChecker</span>
               </div>
               <h1 style={{ fontSize: 20, fontWeight: 700, color: C.text, margin: "0 0 4px" }}>Contradiction Analysis Report</h1>
               <p style={{ fontSize: 13, color: C.textSec, margin: 0 }}>{SESSION.title}</p>
@@ -1458,69 +1426,55 @@ function PDFExport({ onClose }: { onClose: () => void }) {
 
           {/* Summary */}
           <div style={{ marginBottom: 28 }}>
-            <span style={{ fontSize: 11, fontWeight: 600, color: C.textSec, textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 12 }}>Contradiction Summary</span>
-            <div style={{ display: "flex", gap: 12 }}>
-              {[
-                { n: pdfTotalFlags, label: "Contradictions", bg: C.highBg, bdr: C.highBorder, col: C.red },
-                { n: MOCK_DOCS.length, label: "Documents", bg: C.bgSub, bdr: C.border, col: C.text },
-              ].map(function (s) {
-                return (
-                  <div key={s.label} style={{ flex: 1, textAlign: "center", padding: "14px", background: s.bg, borderRadius: 10, border: "1px solid " + s.bdr }}>
-                    <div style={{ fontSize: 20, fontWeight: 800, color: s.col }}>{s.n}</div>
-                    <div style={{ fontSize: 10, color: s.col === C.text ? C.textMuted : s.col, fontWeight: 600 }}>{s.label}</div>
-                  </div>
-                );
-              })}
-            </div>
+            <span style={{ fontSize: 11, fontWeight: 600, color: C.textSec, textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 8 }}>Summary</span>
+            <p style={{ fontSize: 14, color: C.textSec, margin: 0, lineHeight: 1.6 }}>
+              <span style={{ fontWeight: 700, color: C.cc }}>{pdfTotalFlags}</span> contradictions identified across{" "}
+              <span style={{ fontWeight: 700, color: C.cc }}>{Object.keys(pdfCitedDocs).length}</span> documents
+            </p>
           </div>
 
-          {/* Contradictions */}
-          <span style={{ fontSize: 11, fontWeight: 600, color: C.textSec, textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 12 }}>Contradictions</span>
-          {pdfFlagItems.map(function (item, idx) {
-            var flag = item.flag;
-            var line = item.line;
+          {/* Full transcript */}
+          <span style={{ fontSize: 11, fontWeight: 600, color: C.textSec, textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 12 }}>Full Transcript</span>
+          {LINES.map(function (line, i) {
+            var isQ = line.type === "q";
+            var hasFlags = line.flags && line.flags.length > 0;
+            var pdfKw: string[] = [];
+            if (hasFlags) line.flags!.forEach(function (f) { pdfKw = pdfKw.concat(f.keywords); });
             return (
-              <div key={idx} style={{ padding: "16px 0", borderBottom: idx < pdfFlagItems.length - 1 ? "1px solid " + C.borderLight : "none" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                  <span style={{ fontSize: 14, fontWeight: 600, color: C.text }}>{flag.insight}</span>
-                  <span style={{ fontSize: 11, color: C.textMuted, fontFamily: "'DM Mono', monospace", marginLeft: "auto" }}>{line.time}</span>
+              <div key={i} style={{
+                padding: "8px 0",
+                borderBottom: i < LINES.length - 1 ? "1px solid " + C.borderLight : "none",
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
+                  <span style={{ fontSize: 13, color: C.textMuted, fontFamily: "'DM Mono', monospace" }}>{line.time}</span>
+                  <span style={{ fontSize: 14, fontWeight: 600, color: isQ ? C.textMuted : C.text }}>{line.speaker}</span>
+                  {hasFlags && line.flags!.map(function (f) {
+                    return <span key={f.id} style={{ fontSize: 12, fontWeight: 600, color: C.flag }}>{f.insight}</span>;
+                  })}
                 </div>
-
-                {/* Citation table */}
-                <CitationTable flag={flag} onFileClick={showToast} />
+                <p style={{ fontSize: 16, color: C.text, lineHeight: 1.5, margin: 0 }}>
+                  {hasFlags
+                    ? <HighlightedText text={line.text} keywords={pdfKw} />
+                    : line.text
+                  }
+                </p>
               </div>
             );
           })}
 
-          {/* Full transcript */}
+          {/* Contradictions */}
           <div style={{ marginTop: 28, paddingTop: 20, borderTop: "1px solid " + C.border }}>
-            <span style={{ fontSize: 11, fontWeight: 600, color: C.textSec, textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 12 }}>Full Transcript</span>
-            {LINES.map(function (line, i) {
-              var isQ = line.type === "q";
-              var hasFlags = line.flags && line.flags.length > 0;
-              var pdfKw: string[] = [];
-              if (hasFlags) line.flags!.forEach(function (f) { pdfKw = pdfKw.concat(f.keywords); });
+            <span style={{ fontSize: 11, fontWeight: 600, color: C.textSec, textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 12 }}>Contradictions</span>
+            {pdfFlagItems.map(function (item, idx) {
+              var flag = item.flag;
+              var line = item.line;
               return (
-                <div key={i} style={{
-                  padding: "8px 0",
-                  borderBottom: i < LINES.length - 1 ? "1px solid " + C.borderLight : "none",
-                  borderLeft: hasFlags ? "3px solid " + C.flag : "3px solid transparent",
-                  paddingLeft: hasFlags ? 12 : 0,
-                }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
-                    <span style={{ fontSize: 10, color: C.textMuted, fontFamily: "'DM Mono', monospace" }}>{line.time}</span>
-                    <span style={{ fontSize: 11, fontWeight: 600, color: isQ ? C.textMuted : C.text }}>{line.speaker}</span>
-                    <span style={{ fontSize: 9, color: C.textMuted, background: C.bgSub, padding: "1px 5px", borderRadius: 3 }}>{line.role}</span>
-                    {hasFlags && line.flags!.map(function (f) {
-                      return <span key={f.id} style={{ fontSize: 9, fontWeight: 600, color: C.flag }}>{f.insight}</span>;
-                    })}
+                <div key={idx} style={{ padding: "16px 0", borderBottom: idx < pdfFlagItems.length - 1 ? "1px solid " + C.borderLight : "none" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                    <span style={{ fontSize: 14, fontWeight: 600, color: C.text }}>{flag.insight}</span>
+                    <span style={{ fontSize: 11, color: C.textMuted, fontFamily: "'DM Mono', monospace", marginLeft: "auto" }}>{line.time}</span>
                   </div>
-                  <p style={{ fontSize: 13, color: C.text, lineHeight: 1.5, margin: 0 }}>
-                    {hasFlags
-                      ? <HighlightedText text={line.text} keywords={pdfKw} />
-                      : line.text
-                    }
-                  </p>
+                  <CitationTable flag={flag} onFileClick={showToast} />
                 </div>
               );
             })}
