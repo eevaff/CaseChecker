@@ -77,37 +77,31 @@ function AppNav() {
       background: C.bgDark, padding: "0 32px", display: "flex",
       alignItems: "center", justifyContent: "space-between", height: 56,
     }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 32 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <VerloWordmark fontSize={16} light />
-          <span style={{
-            fontSize: 11, fontWeight: 600, color: C.cc,
-            background: "rgba(122,46,59,0.2)", padding: "2px 8px",
-            borderRadius: 4, marginLeft: 4,
-          }}>CaseChecker</span>
+      <div style={{ display: "flex", alignItems: "center", gap: 28 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <Logo size={22} />
+          <span style={{ fontSize: 16, fontWeight: 700, color: "#fff", letterSpacing: "-0.01em" }}>CaseChecker</span>
         </div>
         <div style={{ display: "flex", gap: 4 }}>
-          {["Sessions", "Account"].map(function (t) {
-            var act = t === "Sessions";
+          {["Library", "Case Storage", "Account"].map(function (t) {
+            var act = t === "Library";
             return (
               <span key={t} style={{
                 fontSize: 13, fontWeight: act ? 600 : 500,
                 color: act ? "#fff" : "#94a3b8",
-                background: act ? "rgba(255,255,255,0.1)" : "transparent",
-                padding: "6px 14px", borderRadius: 6,
+                background: act ? "rgba(255,255,255,0.12)" : "transparent",
+                padding: "6px 16px", borderRadius: 6,
               }}>{t}</span>
             );
           })}
         </div>
       </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
-        <span style={{ fontSize: 12, color: C.textMuted }}>Help</span>
-        <div style={{
-          width: 32, height: 32, borderRadius: 16, background: "#1e293b",
-          display: "flex", alignItems: "center", justifyContent: "center",
-        }}>
-          <span style={{ color: "#94a3b8", fontSize: 12, fontWeight: 600 }}>KL</span>
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <span style={{ fontSize: 13, color: "#94a3b8" }}>Free minutes</span>
+        <div style={{ width: 100, height: 6, background: "#1e293b", borderRadius: 3, overflow: "hidden" }}>
+          <div style={{ width: "6%", height: "100%", background: "#4ade80", borderRadius: 3 }} />
         </div>
+        <span style={{ fontSize: 13, color: "#94a3b8", fontFamily: "'DM Mono', monospace" }}>570 / 9999</span>
       </div>
     </div>
   );
@@ -594,21 +588,25 @@ function FlagHighlightedText({ text, flags }: { text: string; flags: TranscriptF
 // TRANSCRIPT LINE — per-line component with connector bracket measurement
 // ═══════════════════════════════════════════════════════════════════
 
-function TranscriptLineRow({ line, index, visCount, wordCounts, locked, activeFlagId, onChipClick }: {
+function TranscriptLineRow({ line, index, visCount, wordCounts, locked, checked, activeFlagId, onChipClick }: {
   line: TranscriptLine; index: number; visCount: number;
   wordCounts: Record<number, number>; locked: Record<number, boolean>;
+  checked: Record<number, boolean>;
   activeFlagId: string | null; onChipClick: (flagId: string) => void;
 }) {
   var containerRef = useRef<HTMLDivElement>(null);
   var [chipLayout, setChipLayout] = useState<{ positions: Record<string, { top: number; left: number }>; minHeight: number } | null>(null);
   var [brackets, setBrackets] = useState<{ path: string; id: string }[]>([]);
   var [resizeTick, setResizeTick] = useState(0);
+  var [clearPhase, setClearPhase] = useState<"hidden" | "visible" | "fading">("hidden");
 
   var isVisible = index < visCount;
   var isLocked = !!locked[index];
-  var isStreaming = isVisible && !isLocked;
-  var hasFlags = isLocked && line.flags !== undefined && line.flags.length > 0;
+  var isChecked = !!checked[index];
   var isQuestion = line.type === "q";
+  var isStreaming = isVisible && !isLocked;
+  var isChecking = isLocked && !isChecked && !isQuestion;
+  var hasFlags = isChecked && line.flags !== undefined && line.flags.length > 0;
 
   // Recalculate on resize
   useEffect(function () {
@@ -616,6 +614,16 @@ function TranscriptLineRow({ line, index, visCount, wordCounts, locked, activeFl
     window.addEventListener("resize", onResize);
     return function () { window.removeEventListener("resize", onResize); };
   }, []);
+
+  // Show "No contradictions" briefly after check completes for clean subject lines
+  useEffect(function () {
+    if (isChecked && !isQuestion && (!line.flags || line.flags.length === 0)) {
+      setClearPhase("visible");
+      var t1 = setTimeout(function () { setClearPhase("fading"); }, 2500);
+      var t2 = setTimeout(function () { setClearPhase("hidden"); }, 3000);
+      return function () { clearTimeout(t1); clearTimeout(t2); };
+    }
+  }, [isChecked]);
 
   /* Measure keyword positions → compute bracket paths + chip positions.
      Each bracket endpoint Y = phraseBottom + 22, not derived from the chip
@@ -714,7 +722,7 @@ function TranscriptLineRow({ line, index, visCount, wordCounts, locked, activeFl
       setBrackets(newBrackets);
     }, 60);
     return function () { clearTimeout(timer); };
-  }, [isLocked, hasFlags, resizeTick]);
+  }, [isLocked, isChecked, hasFlags, resizeTick]);
 
   if (!isVisible) return null;
 
@@ -725,7 +733,7 @@ function TranscriptLineRow({ line, index, visCount, wordCounts, locked, activeFl
   var chipsReady = chipLayout !== null;
 
   return (
-    <div style={{ animation: "cc-fade-in 0.3s ease" }}>
+    <div data-line-index={index} style={{ animation: "cc-fade-in 0.3s ease" }}>
       <div ref={containerRef} style={{ padding: "12px 20px", position: "relative", minHeight: chipsReady ? chipLayout.minHeight : undefined }}>
         {/* Speaker info */}
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
@@ -763,6 +771,33 @@ function TranscriptLineRow({ line, index, visCount, wordCounts, locked, activeFl
             </span>
           )}
         </p>
+
+        {/* Checking case files indicator */}
+        {isChecking && (
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 8 }}>
+            <div style={{ display: "flex", gap: 2 }}>
+              {[0, 1, 2, 3, 4].map(function (d) {
+                return <span key={d} style={{ width: 3, height: 3, borderRadius: 2, background: C.textMuted, animation: "cc-typing 1.2s ease-in-out " + (d * 0.15) + "s infinite" }} />;
+              })}
+            </div>
+            <span style={{ fontSize: 12, color: C.textMuted, fontStyle: "italic" }}>Checking case files…</span>
+          </div>
+        )}
+
+        {/* No contradictions (clean check) */}
+        {clearPhase !== "hidden" && (
+          <div style={{
+            display: "flex", alignItems: "center", gap: 6, marginTop: 8,
+            opacity: clearPhase === "fading" ? 0 : 1,
+            transition: "opacity 0.5s ease",
+            animation: "cc-fade-in 0.3s ease",
+          }}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={C.green} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+            <span style={{ fontSize: 12, color: C.green, fontWeight: 500 }}>No contradictions</span>
+          </div>
+        )}
 
         {/* Inline chips — absolutely positioned at bracket endpoints */}
         {hasFlags && chipsReady && line.flags!.map(function (flag) {
@@ -826,6 +861,7 @@ function LiveAnalysis() {
   var [wordCounts, setWordCounts] = useState<Record<number, number>>({});
   var [locked, setLocked] = useState<Record<number, boolean>>({});
   var [activeFlagId, setActiveFlagId] = useState<string | null>(null);
+  var [checked, setChecked] = useState<Record<number, boolean>>({});
   var [autoScrollFrozen, setAutoScrollFrozen] = useState(false);
   var [showResumePill, setShowResumePill] = useState(false);
   var transcriptRef = useRef<HTMLDivElement>(null);
@@ -847,6 +883,11 @@ function LiveAnalysis() {
       timers.push(setTimeout(function () {
         setLocked(function (prev) { var n: Record<number, boolean> = {}; for (var k in prev) n[k] = prev[k]; n[i] = true; return n; });
       }, sched.lockTime));
+      // Checking delay — subject lines show "Checking case files…" before resolving
+      var checkDelay = line.type === "s" ? 1500 : 100;
+      timers.push(setTimeout(function () {
+        setChecked(function (prev) { var n: Record<number, boolean> = {}; for (var k in prev) n[k] = prev[k]; n[i] = true; return n; });
+      }, sched.lockTime + checkDelay));
     });
     return function () { timers.forEach(clearTimeout); };
   }, []);
@@ -885,7 +926,7 @@ function LiveAnalysis() {
   // Build flat flag list for counter
   var allFlags: { flag: TranscriptFlag; line: TranscriptLine; lineIdx: number }[] = [];
   LINES.forEach(function (line, i) {
-    if (line.flags && line.flags.length > 0 && locked[i]) {
+    if (line.flags && line.flags.length > 0 && checked[i]) {
       line.flags.forEach(function (flag) {
         allFlags.push({ flag: flag, line: line, lineIdx: i });
       });
@@ -957,6 +998,37 @@ function LiveAnalysis() {
     }
   };
 
+  // Navigate to prev/next flag
+  var navigateFlag = function (direction: "prev" | "next") {
+    if (allFlags.length === 0) return;
+    var currentIdx = -1;
+    for (var i = 0; i < allFlags.length; i++) {
+      if (allFlags[i].flag.id === activeFlagId) { currentIdx = i; break; }
+    }
+    var newIdx: number;
+    if (currentIdx === -1) {
+      newIdx = direction === "next" ? 0 : allFlags.length - 1;
+    } else {
+      newIdx = direction === "next"
+        ? (currentIdx + 1) % allFlags.length
+        : (currentIdx - 1 + allFlags.length) % allFlags.length;
+    }
+    var newFlagId = allFlags[newIdx].flag.id;
+    var newLineIdx = allFlags[newIdx].lineIdx;
+    setActiveFlagId(newFlagId);
+    setAutoScrollFrozen(true);
+    setShowResumePill(true);
+    // Scroll transcript to the flagged line
+    if (transcriptRef.current) {
+      var lineEl = transcriptRef.current.querySelector('[data-line-index="' + newLineIdx + '"]');
+      if (lineEl) {
+        isAutoScrolling.current = true;
+        (lineEl as HTMLElement).scrollIntoView({ behavior: "smooth", block: "center" });
+        setTimeout(function () { isAutoScrolling.current = false; }, 500);
+      }
+    }
+  };
+
   // Reset preview scroll on flag switch
   useEffect(function () {
     if (!activeFlagId) return;
@@ -969,37 +1041,6 @@ function LiveAnalysis() {
     <div style={{ height: "100%", background: C.bgSub, display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <AppNav />
 
-      {/* ── Sub-header bar ── */}
-      <div style={{
-        background: C.bg, borderBottom: "1px solid " + C.border,
-        padding: "0 32px", display: "flex", alignItems: "center",
-        justifyContent: "space-between", height: 48, flexShrink: 0,
-      }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.textMuted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
-            <span style={{ fontSize: 13, color: C.textMuted }}>Library</span>
-          </div>
-          <div style={{ width: 1, height: 20, background: C.border }} />
-          <span style={{ fontSize: 13, fontWeight: 600, color: C.text, maxWidth: 400, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {SESSION.title}
-          </span>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-          {isLive && (
-            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <div style={{ width: 7, height: 7, borderRadius: 4, background: C.red, animation: "cc-pulse-dot 1.5s ease-in-out infinite" }} />
-              <span style={{ fontSize: 12, fontWeight: 600, color: C.red }}>LIVE</span>
-              <span style={{ fontSize: 12, color: C.textMuted, fontFamily: "'DM Mono', monospace" }}>{elapsedStr}</span>
-            </div>
-          )}
-          <button style={{
-            padding: "6px 16px", borderRadius: 8, border: "1.5px solid " + C.red,
-            background: "transparent", color: C.red, fontSize: 12, fontWeight: 600, cursor: "pointer",
-          }}>End Session</button>
-        </div>
-      </div>
-
       {/* ── Two-panel layout ── */}
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
 
@@ -1008,22 +1049,12 @@ function LiveAnalysis() {
           {/* Subject bar */}
           <div style={{
             padding: "10px 24px", borderBottom: "1px solid " + C.border,
-            background: C.bg, display: "flex", alignItems: "center", justifyContent: "space-between",
+            background: C.bg, display: "flex", alignItems: "center",
           }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <span style={{ fontSize: 14, fontWeight: 600, color: C.text }}>Live Transcript</span>
-              <div style={{ width: 1, height: 16, background: C.border }} />
-              <span style={{ fontSize: 12, color: C.textSec }}>{SESSION.subject}</span>
-              <span style={{ fontSize: 10, color: C.textMuted, background: C.bgSub, padding: "2px 8px", borderRadius: 4 }}>{SESSION.subjectRole}</span>
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ fontSize: 11, color: C.textMuted }}>{MOCK_DOCS.length} docs</span>
-              {isLive && (
-                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                  <div style={{ width: 5, height: 5, borderRadius: 3, background: C.green }} />
-                  <span style={{ fontSize: 11, color: C.green, fontWeight: 500 }}>Listening</span>
-                </div>
-              )}
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{ width: 8, height: 8, borderRadius: 4, background: C.green }} />
+              <span style={{ fontSize: 15, fontWeight: 600, color: C.text }}>{SESSION.subject}</span>
+              <span style={{ fontSize: 13, color: "#2563eb", cursor: "pointer" }}>Select another participant</span>
             </div>
           </div>
 
@@ -1033,6 +1064,7 @@ function LiveAnalysis() {
               return (
                 <TranscriptLineRow key={i} line={line} index={i}
                   visCount={visCount} wordCounts={wordCounts} locked={locked}
+                  checked={checked}
                   activeFlagId={activeFlagId} onChipClick={handleChipClick} />
               );
             })}
@@ -1046,6 +1078,16 @@ function LiveAnalysis() {
                   })}
                 </div>
                 <span style={{ fontSize: 12, color: C.textMuted, fontStyle: "italic" }}>listening…</span>
+              </div>
+            )}
+
+            {/* Session complete — all clear */}
+            {!isLive && allFlags.length === 0 && (
+              <div style={{ padding: "20px 24px", display: "flex", alignItems: "center", gap: 8, animation: "cc-fade-in 0.5s ease" }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.green} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+                <span style={{ fontSize: 13, color: C.green, fontWeight: 500 }}>No contradictions detected</span>
               </div>
             )}
           </div>
@@ -1096,17 +1138,43 @@ function LiveAnalysis() {
                 </div>
               </div>
 
-              {/* Section header + counter */}
+              {/* Section header + counter with prev/next */}
               <span style={{ fontSize: 13, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em", display: "block" }}>Evidence</span>
-              <span style={{ fontSize: 12, color: "#94a3b8", fontWeight: 400, display: "block", marginTop: 2, marginBottom: 16 }}>
-                {(function () {
-                  var idx = -1;
-                  for (var ci = 0; ci < allFlags.length; ci++) {
-                    if (allFlags[ci].flag.id === activeFlagId) { idx = ci; break; }
-                  }
-                  return (idx + 1) + " of " + allFlags.length;
-                })()}
-              </span>
+              <div style={{ display: "flex", alignItems: "center", gap: 2, marginTop: 2, marginBottom: 16 }}>
+                <div onClick={function () { navigateFlag("prev"); }}
+                  onMouseEnter={function (e) { e.currentTarget.style.background = C.bgSub; }}
+                  onMouseLeave={function (e) { e.currentTarget.style.background = "transparent"; }}
+                  style={{
+                    width: 24, height: 24, borderRadius: 6, display: "flex",
+                    alignItems: "center", justifyContent: "center", cursor: "pointer",
+                    background: "transparent", transition: "background 0.15s",
+                  }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="15 18 9 12 15 6" />
+                  </svg>
+                </div>
+                <span style={{ fontSize: 12, color: "#94a3b8", fontWeight: 400, minWidth: 48, textAlign: "center" }}>
+                  {(function () {
+                    var idx = -1;
+                    for (var ci = 0; ci < allFlags.length; ci++) {
+                      if (allFlags[ci].flag.id === activeFlagId) { idx = ci; break; }
+                    }
+                    return (idx + 1) + " of " + allFlags.length;
+                  })()}
+                </span>
+                <div onClick={function () { navigateFlag("next"); }}
+                  onMouseEnter={function (e) { e.currentTarget.style.background = C.bgSub; }}
+                  onMouseLeave={function (e) { e.currentTarget.style.background = "transparent"; }}
+                  style={{
+                    width: 24, height: 24, borderRadius: 6, display: "flex",
+                    alignItems: "center", justifyContent: "center", cursor: "pointer",
+                    background: "transparent", transition: "background 0.15s",
+                  }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="9 6 15 12 9 18" />
+                  </svg>
+                </div>
+              </div>
 
               {/* Testimony quote */}
               <p style={{ fontSize: 16, fontWeight: 500, color: "#0f172a", lineHeight: 1.6, margin: "0 0 0" }}>
