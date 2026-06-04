@@ -35,6 +35,7 @@ var C = {
 
 var screens = [
   "Session Setup",
+  "Connecting",
   "Live Analysis",
   "Post-Session Summary",
   "PDF Export",
@@ -527,6 +528,228 @@ function SessionSetup({ onStart }: { onStart: () => void }) {
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
           <button style={{ padding: "12px 24px", borderRadius: 10, border: "1.5px solid " + C.border, background: C.bg, fontSize: 14, fontWeight: 600, color: C.textSec, cursor: "pointer" }}>Save Draft</button>
           <button onClick={onStart} style={{ padding: "12px 32px", borderRadius: 10, border: "none", background: C.brand, color: "#fff", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>Start Session</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+// FLOW 1.5: CONNECTING PAGE  (unified loading stepper)
+// ═══════════════════════════════════════════════════════════════════
+
+var CONNECT_STEPS = [
+  { label: "Connecting to meeting", detail: null, hasBar: false, duration: 1400 },
+  { label: "Recorder admitted to meeting", detail: null, hasBar: false, duration: 2000 },
+  { label: "Waiting for participants to join", detail: null, hasBar: false, duration: 2400 },
+  { label: "Preparing case files", detail: MOCK_DOCS.length + " files ready", hasBar: true, duration: 3200 },
+];
+
+function ConnectingPage({ onReady }: { onReady: () => void }) {
+  // activeStep = index of step currently running (-1 = not started, 6 = all done)
+  var [activeStep, setActiveStep] = useState(-1);
+  // barProgress tracks 0→1 for progress-bar steps
+  var [barProgress, setBarProgress] = useState<Record<number, number>>({});
+
+  useEffect(function () {
+    // Kick off after a short initial pause
+    var timeout = setTimeout(function () { setActiveStep(0); }, 400);
+    return function () { clearTimeout(timeout); };
+  }, []);
+
+  // Advance through steps sequentially
+  useEffect(function () {
+    if (activeStep < 0 || activeStep >= CONNECT_STEPS.length) return;
+
+    var step = CONNECT_STEPS[activeStep];
+    var dur = step.duration;
+
+    // Animate progress bar for steps that have one
+    var barInterval: ReturnType<typeof setInterval> | null = null;
+    if (step.hasBar) {
+      var elapsed = 0;
+      var tick = 50;
+      barInterval = setInterval(function () {
+        elapsed += tick;
+        var pct = Math.min(elapsed / dur, 1);
+        // ease-out curve
+        var eased = 1 - Math.pow(1 - pct, 3);
+        setBarProgress(function (prev) {
+          var next: Record<number, number> = {};
+          for (var k in prev) next[k] = prev[k];
+          next[activeStep] = eased;
+          return next;
+        });
+      }, tick);
+    }
+
+    var timeout = setTimeout(function () {
+      if (barInterval) clearInterval(barInterval);
+      // Snap bar to 100%
+      setBarProgress(function (prev) {
+        var next: Record<number, number> = {};
+        for (var k in prev) next[k] = prev[k];
+        next[activeStep] = 1;
+        return next;
+      });
+      setActiveStep(activeStep + 1);
+    }, dur);
+
+    return function () {
+      clearTimeout(timeout);
+      if (barInterval) clearInterval(barInterval);
+    };
+  }, [activeStep]);
+
+  var allDone = activeStep >= CONNECT_STEPS.length;
+
+  return (
+    <div style={{ minHeight: "100%", background: C.bgSub }}>
+      <AppNav />
+
+      {/* Top bar: cancel only */}
+      <div style={{
+        maxWidth: 800, margin: "0 auto", padding: "24px 40px 0",
+        display: "flex", justifyContent: "flex-end",
+      }}>
+        <button style={{
+          display: "flex", alignItems: "center", gap: 6,
+          padding: "8px 18px", borderRadius: 8, border: "1px solid " + C.border,
+          background: C.bg, fontSize: 13, fontWeight: 500, color: C.textSec, cursor: "pointer",
+        }}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={C.textSec} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+          Cancel
+        </button>
+      </div>
+
+      {/* Stepper — centered */}
+      <div style={{ maxWidth: 480, margin: "0 auto", padding: "72px 40px 80px" }}>
+        {CONNECT_STEPS.map(function (step, i) {
+          var isDone = i < activeStep;
+          var isActive = i === activeStep;
+          var isFuture = i > activeStep;
+
+          return (
+            <div key={i} style={{
+              opacity: isFuture ? 0 : 1,
+              transform: isFuture ? "translateY(8px)" : "translateY(0)",
+              transition: "opacity 0.35s ease, transform 0.35s ease",
+            }}>
+              {/* Step row */}
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 16 }}>
+                {/* Icon column */}
+                <div style={{ width: 24, display: "flex", justifyContent: "center", flexShrink: 0, paddingTop: 1 }}>
+                  {isDone ? (
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={C.green} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ animation: "cc-fade-in 0.3s ease" }}>
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                  ) : isActive ? (
+                    <div style={{
+                      width: 18, height: 18, border: "2.5px solid " + C.border,
+                      borderTopColor: C.green, borderRadius: "50%",
+                      animation: "cc-spin 0.8s linear infinite",
+                    }} />
+                  ) : (
+                    <div style={{
+                      width: 10, height: 10, borderRadius: "50%",
+                      border: "2px solid " + C.border, marginTop: 4,
+                    }} />
+                  )}
+                </div>
+
+                {/* Text column */}
+                <div style={{ flex: 1, minWidth: 0, paddingBottom: step.hasBar && (isActive || isDone) ? 4 : 0 }}>
+                  <span style={{
+                    fontSize: 15,
+                    fontWeight: isDone || isActive ? 600 : 400,
+                    color: isDone ? C.green : isActive ? C.text : C.textMuted,
+                    transition: "color 0.3s",
+                  }}>
+                    {step.label}
+                  </span>
+
+                  {/* Inline detail text (file counts) */}
+                  {step.detail && isDone && (
+                    <span style={{
+                      fontSize: 13, color: C.textMuted, marginLeft: 10,
+                      fontFamily: "'DM Mono', monospace",
+                      animation: "cc-fade-in 0.3s ease",
+                    }}>
+                      {step.detail}
+                    </span>
+                  )}
+
+                  {/* Progress bar for upload/index steps */}
+                  {step.hasBar && (isActive || isDone) && (
+                    <div style={{
+                      marginTop: 8, height: 4, background: C.borderLight,
+                      borderRadius: 2, overflow: "hidden", maxWidth: 260,
+                    }}>
+                      <div style={{
+                        height: "100%", borderRadius: 2,
+                        background: C.green,
+                        width: ((barProgress[i] || 0) * 100) + "%",
+                        transition: isDone ? "width 0.2s ease" : "none",
+                      }} />
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Connector line */}
+              {i < CONNECT_STEPS.length - 1 && (
+                <div style={{
+                  width: 24, display: "flex", justifyContent: "center",
+                }}>
+                  <div style={{
+                    width: 2, height: 32,
+                    background: isDone ? "rgba(22,163,74,0.25)" : C.borderLight,
+                    borderRadius: 1,
+                    transition: "background 0.3s",
+                  }} />
+                </div>
+              )}
+            </div>
+          );
+        })}
+
+        {/* Final CTA step — appears after all steps complete */}
+        <div style={{
+          opacity: allDone ? 1 : 0,
+          transform: allDone ? "translateY(0)" : "translateY(12px)",
+          transition: "opacity 0.4s ease 0.2s, transform 0.4s ease 0.2s",
+          pointerEvents: allDone ? "auto" : "none",
+        }}>
+          {/* Connector line into CTA */}
+          <div style={{ width: 24, display: "flex", justifyContent: "center" }}>
+            <div style={{ width: 2, height: 32, background: "rgba(22,163,74,0.25)", borderRadius: 1 }} />
+          </div>
+
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 16 }}>
+            <div style={{ width: 24, display: "flex", justifyContent: "center", flexShrink: 0, paddingTop: 3 }}>
+              <div style={{
+                width: 12, height: 12, borderRadius: "50%",
+                border: "2.5px solid " + C.brand,
+                animation: allDone ? "cc-pulse-dot 1.5s ease infinite" : "none",
+              }} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <span style={{ fontSize: 16, fontWeight: 700, color: C.text, display: "block", marginBottom: 8 }}>
+                Select who to analyze
+              </span>
+              <p style={{ fontSize: 14, color: C.textSec, margin: "0 0 16px", lineHeight: 1.55 }}>
+                Case files are ready and participants are in the meeting. Choose the witness to analyze for contradictions.
+              </p>
+              <button onClick={onReady} style={{
+                padding: "12px 28px", borderRadius: 10, border: "none",
+                background: C.brand, color: "#fff", fontSize: 14, fontWeight: 600,
+                cursor: "pointer", transition: "background 0.15s",
+              }}>
+                Select Who to Analyze
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -1574,9 +1797,10 @@ export default function CaseCheckerApp() {
 
   var views = [
     <SessionSetup key="setup" onStart={function () { setScreen(1); }} />,
+    <ConnectingPage key="connecting" onReady={function () { setScreen(2); }} />,
     <LiveAnalysis key="live" />,
-    <PostSession key="post" onExport={function () { setScreen(3); }} />,
-    <PDFExport key="pdf" onClose={function () { setScreen(2); }} />,
+    <PostSession key="post" onExport={function () { setScreen(4); }} />,
+    <PDFExport key="pdf" onClose={function () { setScreen(3); }} />,
   ];
 
   return (
